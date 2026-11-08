@@ -53,12 +53,11 @@ const el = {
   detailPane: document.getElementById("detailPane"),
   detailEmpty: document.getElementById("detailEmpty"),
   detailContent: document.getElementById("detailContent"),
-  settingsButton: document.getElementById("settingsButton"),
-  settingsModal: document.getElementById("settingsModal"),
+  settingsPane: document.getElementById("settingsPane"),
   settingsBody: document.getElementById("settingsBody"),
-  settingsClose: document.getElementById("settingsClose"),
   settingsSave: document.getElementById("settingsSave"),
   settingsHint: document.getElementById("settingsHint"),
+  timeline: document.querySelector(".timeline"),
 };
 
 function text(value) {
@@ -1230,18 +1229,24 @@ function bindEvents() {
   for (const tab of el.tabs) {
     tab.addEventListener("click", async () => {
       state.scope = tab.dataset.scope;
+      renderTabs();
+      if (state.scope === "settings") {
+        await openSettings();
+        return;
+      }
+      leaveSettings();
       if (state.scope !== "profile") {
         state.targetUin = "";
         el.targetUin.value = "";
       }
       state.cursor = "";
       state.posts = [];
-      renderTabs();
       await loadFeed();
     });
   }
   el.targetForm.addEventListener("submit", async (event) => {
     event.preventDefault();
+    leaveSettings();
     state.targetUin = el.targetUin.value.trim();
     state.scope = "profile";
     state.cursor = "";
@@ -1260,12 +1265,7 @@ function bindEvents() {
     await uploadFiles(el.mediaInput.files || []);
     el.mediaInput.value = "";
   });
-  el.settingsButton?.addEventListener("click", openSettings);
-  el.settingsClose?.addEventListener("click", closeSettings);
   el.settingsSave?.addEventListener("click", saveSettings);
-  el.settingsModal?.addEventListener("click", (event) => {
-    if (event.target === el.settingsModal) closeSettings();
-  });
 }
 
 // ===== 插件设置 =====
@@ -1282,89 +1282,133 @@ function settingsHint(message, isError = false) {
   el.settingsHint.classList.toggle("is-error", Boolean(isError));
 }
 
-function buildSettingField(path, spec, value) {
-  const wrap = document.createElement("label");
-  wrap.className = "settings-field";
-  wrap.dataset.path = path;
-  wrap.dataset.type = spec.type || "string";
+function enterSettings() {
+  if (el.settingsPane) el.settingsPane.hidden = false;
+  if (el.timeline) el.timeline.hidden = true;
+  if (el.detailPane) el.detailPane.hidden = true;
+}
 
-  const name = document.createElement("span");
-  name.className = "settings-label";
-  name.textContent = spec.description || path;
-  wrap.append(name);
+function leaveSettings() {
+  if (el.settingsPane) el.settingsPane.hidden = true;
+  if (el.timeline) el.timeline.hidden = false;
+  if (el.detailPane) el.detailPane.hidden = false;
+}
 
-  const slider = spec.slider || {};
-  let input;
-  if (spec.type === "bool") {
-    input = document.createElement("input");
-    input.type = "checkbox";
-    input.checked = Boolean(value);
-  } else if (spec.type === "int" || spec.type === "float") {
-    input = document.createElement("input");
-    input.type = "number";
-    if (slider.min !== undefined) input.min = slider.min;
-    if (slider.max !== undefined) input.max = slider.max;
-    if (slider.step !== undefined) input.step = slider.step;
-    input.value = value ?? spec.default ?? "";
-  } else if (spec.type === "text" || spec.type === "list") {
-    input = document.createElement("textarea");
-    input.rows = spec.type === "text" ? 4 : 3;
-    if (Array.isArray(value)) {
-      input.value = value.join("\n");
-    } else {
-      input.value = value ?? spec.default ?? "";
-    }
-    if (spec.type === "list") input.placeholder = "一行一个";
-  } else {
-    input = document.createElement("input");
-    input.type = "text";
-    input.value = value ?? spec.default ?? "";
-    if (spec._special === "select_provider") {
-      input.placeholder = "留空则使用当前默认提供商";
-    }
-  }
-  wrap.append(input);
+function buildSettingRow(path, spec, value) {
+  const row = document.createElement("div");
+  row.className = "setting-row";
+  row.dataset.path = path;
+  row.dataset.type = spec.type || "string";
 
+  const info = document.createElement("div");
+  info.className = "setting-text";
+  const label = document.createElement("strong");
+  label.textContent = spec.description || path;
+  info.append(label);
   if (spec.hint) {
     const hint = document.createElement("small");
     hint.textContent = spec.hint;
-    wrap.append(hint);
+    info.append(hint);
   }
-  return wrap;
+  row.append(info);
+
+  const control = document.createElement("div");
+  control.className = "setting-control";
+  const slider = spec.slider || {};
+
+  if (spec.type === "bool") {
+    const sw = document.createElement("label");
+    sw.className = "switch";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = Boolean(value);
+    input.dataset.role = "value";
+    const track = document.createElement("span");
+    sw.append(input, track);
+    control.append(sw);
+  } else if (spec.type === "int" || spec.type === "float") {
+    if (slider.min !== undefined && slider.max !== undefined) {
+      const range = document.createElement("input");
+      range.type = "range";
+      range.min = slider.min;
+      range.max = slider.max;
+      range.step = slider.step ?? (spec.type === "int" ? 1 : 0.01);
+      range.value = value ?? spec.default ?? slider.min;
+      range.dataset.role = "value";
+      const out = document.createElement("output");
+      out.textContent = range.value;
+      range.addEventListener("input", () => {
+        out.textContent = range.value;
+      });
+      control.append(range, out);
+    } else {
+      const input = document.createElement("input");
+      input.type = "number";
+      input.value = value ?? spec.default ?? "";
+      input.dataset.role = "value";
+      control.append(input);
+    }
+  } else if (spec.type === "text" || spec.type === "list") {
+    row.classList.add("is-wide");
+    const area = document.createElement("textarea");
+    area.rows = spec.type === "text" ? 4 : 3;
+    area.value = Array.isArray(value)
+      ? value.join("\n")
+      : value ?? spec.default ?? "";
+    if (spec.type === "list") area.placeholder = "一行一个";
+    area.dataset.role = "value";
+    control.append(area);
+  } else {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = value ?? spec.default ?? "";
+    input.dataset.role = "value";
+    if (spec._special === "select_provider") {
+      input.placeholder = "留空则用默认提供商";
+    }
+    control.append(input);
+  }
+
+  row.append(control);
+  return row;
+}
+
+function buildSettingCard(title, entries) {
+  const card = document.createElement("article");
+  card.className = "setting-card";
+  const head = document.createElement("h3");
+  head.textContent = title;
+  card.append(head);
+  for (const entry of entries) {
+    card.append(buildSettingRow(entry[0], entry[1], entry[2]));
+  }
+  return card;
 }
 
 function renderSettings(data) {
-  const schema = data?.schema || {};
-  const values = data?.values || {};
-  el.settingsBody.innerHTML = "";
+  const schema = (data && data.schema) || {};
+  const values = (data && data.values) || {};
+  el.settingsBody.replaceChildren();
 
-  const general = document.createElement("section");
-  general.className = "settings-section";
-  const generalTitle = document.createElement("h3");
-  generalTitle.textContent = "常规";
-  general.append(generalTitle);
-
-  for (const [key, spec] of Object.entries(schema)) {
+  const general = [];
+  for (const key of Object.keys(schema)) {
+    const spec = schema[key];
     if (!spec || typeof spec !== "object") continue;
     if (spec.type !== "object") {
-      general.append(buildSettingField(key, spec, values[key]));
+      general.push([key, spec, values[key]]);
       continue;
     }
     const items = Object.entries(spec.items || {});
     if (!items.length) continue;
-    const section = document.createElement("section");
-    section.className = "settings-section";
-    const title = document.createElement("h3");
-    title.textContent = SETTINGS_SECTIONS[key] || spec.description || key;
-    section.append(title);
     const current = values[key] || {};
-    for (const [sub, subSpec] of items) {
-      section.append(buildSettingField(`${key}.${sub}`, subSpec, current[sub]));
-    }
-    el.settingsBody.append(section);
+    el.settingsBody.append(
+      buildSettingCard(
+        SETTINGS_SECTIONS[key] || spec.description || key,
+        items.map((item) => [key + "." + item[0], item[1], current[item[0]]]),
+      ),
+    );
   }
-
-  if (general.children.length > 1) el.settingsBody.append(general);
+  if (general.length) el.settingsBody.append(buildSettingCard("常规", general));
   if (!el.settingsBody.children.length) {
     el.settingsBody.innerHTML = "<p class='settings-status'>没有可编辑的配置项。</p>";
   }
@@ -1372,46 +1416,44 @@ function renderSettings(data) {
 
 function collectSettings() {
   const result = {};
-  for (const field of el.settingsBody.querySelectorAll(".settings-field")) {
-    const path = field.dataset.path || "";
+  for (const row of el.settingsBody.querySelectorAll(".setting-row")) {
+    const path = row.dataset.path || "";
     if (!path) continue;
-    const input = field.querySelector("input, textarea");
+    const input = row.querySelector("[data-role='value']");
     if (!input) continue;
-    const value = field.dataset.type === "bool" ? input.checked : input.value;
-    const [key, sub] = path.split(".");
-    if (sub) {
-      result[key] = result[key] || {};
-      result[key][sub] = value;
+    const value = row.dataset.type === "bool" ? input.checked : input.value;
+    const parts = path.split(".");
+    if (parts.length > 1) {
+      result[parts[0]] = result[parts[0]] || {};
+      result[parts[0]][parts[1]] = value;
     } else {
-      result[key] = value;
+      result[path] = value;
     }
   }
   return result;
 }
 
 async function openSettings() {
-  if (!el.settingsModal) return;
-  el.settingsModal.hidden = false;
+  enterSettings();
   el.settingsBody.innerHTML = "<p class='settings-status'>加载中…</p>";
   try {
     renderSettings(await apiGet("page/config"));
-    settingsHint("保存后定时任务会按新参数重启。");
+    settingsHint("改完点保存，定时任务会按新参数重启。");
   } catch (error) {
     el.settingsBody.innerHTML = "";
     settingsHint(error.message || "加载配置失败", true);
   }
 }
 
-function closeSettings() {
-  if (el.settingsModal) el.settingsModal.hidden = true;
-}
-
 async function saveSettings() {
   if (el.settingsSave) el.settingsSave.disabled = true;
   try {
-    const data = await apiPost("page/config/update", { values: collectSettings() });
-    const count = Array.isArray(data?.changed) ? data.changed.length : 0;
-    settingsHint(count ? `已保存 ${count} 项，定时任务已按新参数重启。` : "没有需要保存的改动。");
+    const payload = await apiPost("page/config/update", { values: collectSettings() });
+    const count = Array.isArray(payload && payload.changed) ? payload.changed.length : 0;
+    settingsHint(
+      count ? "已保存 " + count + " 项，定时任务已按新参数重启。" : "没有需要保存的改动。",
+    );
+    if (count) renderSettings(await apiGet("page/config"));
   } catch (error) {
     settingsHint(error.message || "保存失败", true);
   } finally {
