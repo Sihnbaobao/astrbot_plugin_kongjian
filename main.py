@@ -591,58 +591,97 @@ class QzonePlugin(Star):
                 await event.send(event.plain_result(str(e)))
                 logger.error(e)
 
+    async def _target_post(
+        self,
+        event: AiocqhttpMessageEvent,
+        user_id: str | None,
+        pos: int,
+        *,
+        with_detail: bool = False,
+    ) -> Post | None:
+        """取某人空间里的第 pos 条说说，user_id 为空时取发消息的人。"""
+        target_id = str(user_id or event.get_sender_id())
+        logger.debug(f"正在查询用户（{target_id}）的第 {pos} 条说说")
+        posts = await self.service.query_feeds(
+            target_id=target_id,
+            pos=pos,
+            num=1,
+            with_detail=with_detail,
+        )
+        return posts[0] if posts else None
+
     @filter.llm_tool()
     async def llm_view_feed(
         self,
         event: AiocqhttpMessageEvent,
         user_id: str | None = None,
         pos: int = 0,
-        like: bool = False,
-        reply: bool = False,
     ):
         """
-        查看、点赞、评论某位用户QQ空间的某条说说、动态
+        看某个人的QQ空间。当群里聊到某个人、你想知道他最近发了什么，
+        或者想接着别人的话题聊下去的时候使用。
         Args:
-            user_id(string): 目标用户的QQ账号，必定为一串数字，如(12345678), 默认为当前用户QQ号
-            pos(number): 要查询的说说序号, 默认为0表示最新
-            like(boolean): 是否点赞
-            reply(boolean): 是否评论
+            user_id(string): 目标QQ号，一串数字；不填就看作当前说话的人
+            pos(number): 看第几条，0 表示最新的一条，默认 0
         """
         try:
-            user_id = user_id or event.get_sender_id()
-            logger.debug(f"正在查询用户（{user_id}）的第 {pos} 条说说")
-
-            posts = await self.service.query_feeds(
-                target_id=user_id,
-                pos=pos,
-                num=1,
-                with_detail=True,
-            )
-
-            if not posts:
+            post = await self._target_post(event, user_id, pos, with_detail=True)
+            if not post:
                 return "查询结果为空"
+            await self.sender.send_post(event, post, message="看说说")
+            return f"{post.name}：{post.text}\n" + "\n".join(post.images)
+        except Exception as e:
+            logger.error(e)
+            return str(e)
 
-            post = posts[0]
+    @filter.llm_tool()
+    async def llm_like_feed(
+        self,
+        event: AiocqhttpMessageEvent,
+        user_id: str | None = None,
+        pos: int = 0,
+    ):
+        """
+        给某个人的一条说说点赞。看到让你觉得好笑、认同或者想表示在看的动态时用，
+        不用每条都点。
+        Args:
+            user_id(string): 目标QQ号，一串数字；不填就看作当前说话的人
+            pos(number): 第几条，0 表示最新的一条，默认 0
+        """
+        try:
+            post = await self._target_post(event, user_id, pos)
+            if not post:
+                return "没有找到这条说说"
+            await self.service.like_posts(post)
+            await self.sender.send_post(event, post, message="已点赞")
+            return f"已给{post.name}的说说点赞"
+        except Exception as e:
+            logger.error(e)
+            return str(e)
 
-            # 执行动作
-            msg = ""
-
-            if like and reply:
-                await self.service.comment_posts(post, event=event)
+    @filter.llm_tool()
+    async def llm_comment_feed(
+        self,
+        event: AiocqhttpMessageEvent,
+        user_id: str | None = None,
+        pos: int = 0,
+    ):
+        """
+        在某人的一条说说下面留一句评论。只有真的想接话时才用；
+        评论内容按你的人格风格生成，不需要你另外写。
+        Args:
+            user_id(string): 目标QQ号，一串数字；不填就看作当前说话的人
+            pos(number): 第几条，0 表示最新的一条，默认 0
+        """
+        try:
+            post = await self._target_post(event, user_id, pos)
+            if not post:
+                return "没有找到这条说说"
+            await self.service.comment_posts(post, event=event)
+            if self.cfg.trigger.like_when_comment:
                 await self.service.like_posts(post)
-                msg = "已评论并点赞"
-            elif reply:
-                await self.service.comment_posts(post, event=event)
-                msg = "已评论"
-            elif like:
-                await self.service.like_posts(post)
-                msg = "已点赞"
-
-            # 发送展示
-            await self.sender.send_post(event, post, message=msg)
-
-            return msg + "\n" + post.text + "\n" + "\n".join(post.images)
-
+            await self.sender.send_post(event, post, message="已评论")
+            return f"已在{post.name}的说说下留言"
         except Exception as e:
             logger.error(e)
             return str(e)
@@ -655,10 +694,11 @@ class QzonePlugin(Star):
         get_image: bool = True,
     ):
         """
-        写一篇说说并发布到QQ空间
+        在自己的QQ空间发一条说说。当你有话想说、有值得记一下的小事，
+        或者想让别人知道你现在的状态时用；不用为了发而发。
         Args:
-            text(string): 要发布的说说内容
-            get_image(boolean): 是否获取当前对话中的图片附加到说说里, 默认为True
+            text(string): 说说正文
+            get_image(boolean): 是否把当前对话里的图片一起发出去，默认 True
         """
         images = await get_image_urls(event) if get_image else []
         try:
