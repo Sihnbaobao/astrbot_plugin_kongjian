@@ -2,6 +2,13 @@
 
 本仓库从 `astrbot_plugin_qzone` v3.2.0 的源码接续维护（上游仓库已不可访问），版本号自 v0.1.0 重新起算。
 
+## v0.3.0
+
+- 自主行为不再按 cron 排期：每次随机 50~150 分钟后醒来（`auto_act_enabled` / `auto_act_interval_min` / `auto_act_interval_max`），不再有“每小时准点”的节奏。
+- 决策上下文不再显示今日额度，只告诉模型“现在能做什么”；每日上限退为硬止损，避免模型为了凑配额而发说说。
+- 提示词强调“大多数时候什么都不做才是正常的”。
+- 修复插件页面删除说说没反应：AstrBot 插件页 iframe 的 sandbox 里没有 `allow-modals`，`window.confirm` 被静默拦掉，改为按钮二次点击确认。
+
 ## v0.2.1
 
 - 把 LLM 工具拆成四个，各自只做一件事：看说说 / 点赞 / 评论 / 发说说；原来的 `llm_view_feed(like, reply)` 组合参数已移除。

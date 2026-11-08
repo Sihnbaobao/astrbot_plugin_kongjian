@@ -1,10 +1,11 @@
 import copy
-import json5
 import random
 import re
 import time
 from datetime import datetime, timedelta
 from typing import Any
+
+import json5
 
 from astrbot.api import logger
 from astrbot.core.provider.provider import Provider
@@ -558,20 +559,18 @@ class LLMAction:
         self,
         candidates: list[Post],
         *,
-        today_posts: int,
-        today_interacts: int,
-        post_limit: int,
-        interact_limit: int,
+        allow_post: bool,
+        allow_interact: bool,
         urge: str = "",
     ) -> dict[str, Any] | None:
         """让模型决定这一刻要不要主动做点什么。
 
+        只告诉模型「现在能做什么」，不告诉它还剩几次额度，避免它为了配额而动作。
+
         Args:
             candidates: 还没互动过的好友动态，按时间从新到旧。
-            today_posts: 今天已经自主发过几条说说。
-            today_interacts: 今天已经自主互动过几次。
-            post_limit: 今天允许发说说的次数。
-            interact_limit: 今天允许互动的次数。
+            allow_post: 今天是否还允许发说说。
+            allow_interact: 今天是否还允许点赞 / 评论。
             urge: 人格插件给出的“此刻念头”，可为空。
 
         Returns:
@@ -584,10 +583,12 @@ class LLMAction:
             logger.error("自主行动缺少可用的 LLM 提供商")
             return None
 
-        lines = [
-            "# 今天的自主活动",
-            f"发说说 {today_posts}/{post_limit} 次，互动 {today_interacts}/{interact_limit} 次",
-        ]
+        lines = ["# 这一刻你能做的事"]
+        if allow_post:
+            lines.append("- 自己发一条说说")
+        if allow_interact and candidates:
+            lines.append("- 给下面某条动态点赞，或留一句评论")
+        lines.append("- 什么都不做（大多数时候就是这样）")
         if urge:
             lines.extend(["", "# 此刻的念头", urge])
         lines.extend(["", "# 好友最近的动态"])
@@ -598,7 +599,7 @@ class LLMAction:
                     f"{self._post_snippet(post)}"
                 )
         else:
-            lines.append("暂时没有新的动态，如果真想说话，只能自己发说说。")
+            lines.append("暂时没有新的动态。")
 
         task_prompt, has_time = self._build_task_prompt(
             SCENE_ACT, self.cfg.llm.act_prompt

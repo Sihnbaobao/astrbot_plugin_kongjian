@@ -148,8 +148,9 @@ class TriggerConfig(ConfigNode):
     comment_offset: int
     comment_max_per_run: int
     comment_unique_author: bool
-    auto_act_cron: str
-    auto_act_offset: int
+    auto_act_enabled: bool
+    auto_act_interval_min: int
+    auto_act_interval_max: int
     auto_act_quiet_hours: str
     auto_act_daily_post_limit: int
     auto_act_daily_interact_limit: int

@@ -1,21 +1,23 @@
 """自主行为：让 QQ 空间像真人一样，自己想发就发、想点赞就点赞。"""
 
+import asyncio
 import json
+import random
 from datetime import time as dtime
 
 from astrbot.api import logger
 
 from .config import PluginConfig
 from .model import Post
-from .scheduler import AutoRandomCronTask
 from .sender import Sender
 from .service import PostService
 
 
-class AutoAct(AutoRandomCronTask):
-    """周期性醒来一次，问模型这一刻想不想做点什么。
+class AutoAct:
+    """隔一段随机时间醒来一次，问模型这一刻想不想做点什么。
 
-    动作用模型决定，频率和上限由配置兜底，避免人格一上头就刷屏。
+    醒来间隔在 auto_act_interval_min / auto_act_interval_max 之间随机，
+    不做固定排期，避免变成"每天定时发一条"。
     """
 
     def __init__(
@@ -24,16 +26,55 @@ class AutoAct(AutoRandomCronTask):
         service: PostService,
         sender: Sender,
     ):
-        super().__init__(
-            "AutoAct",
-            config.trigger.auto_act_cron,
-            config.timezone,
-            config.trigger.auto_act_offset,
-        )
         self.cfg = config
         self.service = service
         self.sender = sender
+        self.job_name = "AutoAct"
         self.state_path = config.data_dir / "auto_act_state.json"
+        self._task: asyncio.Task | None = None
+        self._terminated = False
+
+    # ==================== 调度 ====================
+
+    def start(self) -> None:
+        if self._terminated or self._task is not None:
+            return
+        low, high = self._interval_range()
+        delay = random.uniform(low, high)
+        logger.info(f"[AutoAct] 下次醒来：{delay / 60:.0f} 分钟后")
+        self._task = asyncio.create_task(self._sleep_then_run(delay))
+
+    def _interval_range(self) -> tuple[float, float]:
+        low = max(1, int(self.cfg.trigger.auto_act_interval_min or 60))
+        high = max(low, int(self.cfg.trigger.auto_act_interval_max or low))
+        return low * 60, high * 60
+
+    async def _sleep_then_run(self, delay: float) -> None:
+        try:
+            await asyncio.sleep(delay)
+            if self._terminated:
+                return
+            await self.do_task()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.exception(f"[AutoAct] 执行失败：{e}")
+        finally:
+            self._task = None
+            if not self._terminated:
+                self.start()
+
+    async def terminate(self) -> None:
+        self._terminated = True
+        task = self._task
+        self._task = None
+        if task:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        logger.info("[AutoAct] 已停止")
 
     # ==================== 状态 ====================
 
@@ -116,17 +157,17 @@ class AutoAct(AutoRandomCronTask):
         state = self._load_state()
         post_limit = int(self.cfg.trigger.auto_act_daily_post_limit or 0)
         interact_limit = int(self.cfg.trigger.auto_act_daily_interact_limit or 0)
-        if state["posts"] >= post_limit and state["interacts"] >= interact_limit:
+        allow_post = state["posts"] < post_limit
+        allow_interact = state["interacts"] < interact_limit
+        if not allow_post and not allow_interact:
             logger.debug("[AutoAct] 今日额度已用完，跳过")
             return
 
         candidates = await self._candidates(state)
         decision = await self.service.llm.decide_action(
             candidates,
-            today_posts=state["posts"],
-            today_interacts=state["interacts"],
-            post_limit=post_limit,
-            interact_limit=interact_limit,
+            allow_post=allow_post,
+            allow_interact=allow_interact,
             urge=self._persona_urge(),
         )
         if not decision:
@@ -139,14 +180,14 @@ class AutoAct(AutoRandomCronTask):
             return
 
         if action == "post":
-            if state["posts"] >= post_limit:
-                logger.info(f"[AutoAct] 今日发说说额度已满：{reason}")
+            if not allow_post:
+                logger.info(f"[AutoAct] 今天已经发过说说，忽略：{reason}")
                 return
             await self._post(state)
             return
 
-        if state["interacts"] >= interact_limit:
-            logger.info(f"[AutoAct] 今日互动额度已满：{reason}")
+        if not allow_interact:
+            logger.info(f"[AutoAct] 今天的互动次数已用完，忽略：{reason}")
             return
 
         try:

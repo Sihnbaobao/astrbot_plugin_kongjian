@@ -8,12 +8,12 @@ from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
     AiocqhttpMessageEvent,
 )
 
+from .core.autonomy import AutoAct
 from .core.config import PluginConfig
 from .core.db import PostDB
 from .core.llm_action import LLMAction
 from .core.model import Comment, Post
 from .core.qzone import QzoneAPI, QzoneParser, QzoneSession
-from .core.autonomy import AutoAct
 from .core.scheduler import AutoComment
 from .core.sender import Sender
 from .core.service import PostService
@@ -61,8 +61,9 @@ class QzonePlugin(Star):
         if not self.auto_comment and self.cfg.trigger.comment_cron:
             self.auto_comment = AutoComment(self.cfg, self.service, self.sender)
 
-        if not self.auto_act and self.cfg.trigger.auto_act_cron:
+        if not self.auto_act and self.cfg.trigger.auto_act_enabled:
             self.auto_act = AutoAct(self.cfg, self.service, self.sender)
+            self.auto_act.start()
 
     def _register_page_web_apis(self) -> None:
         routes = (

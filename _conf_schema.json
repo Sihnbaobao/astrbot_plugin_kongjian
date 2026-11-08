@@ -65,7 +65,7 @@
                 "description": "自主行动决策提示词",
                 "type": "text",
                 "hint": "决定这一刻做什么时使用。必须让模型只输出 JSON，字段为 action / target / text / reason",
-                "default": "你在过自己的生活，不是在做任务。看看今天已经做过什么、好友最近发了什么，再决定这一刻要不要主动做点什么。\n宁可什么都不做，也不要为了完成指标而动作：想说话时再发说说，被某条动态真的触动时再点赞或评论。\n只输出 JSON：{\"action\": \"none|post|like|comment\", \"target\": 动态序号或null, \"text\": \"评论内容(仅comment时填写)\", \"reason\": \"一句话说明为什么\"}"
+                "default": "你在过自己的生活，不是在完成任务。下面是这一刻你能做的事和好友最近的动态，没有指标，也没有必须做的事。\n大多数时候什么都不做才是正常的：只有真的有话想说才发说说，只有真的被某条动态触动才点赞或评论。\n只输出 JSON：{\"action\": \"none|post|like|comment\", \"target\": 动态序号或null, \"text\": \"评论内容(仅comment时填写)\", \"reason\": \"一句话说明为什么\"}"
             }
         }
     },
@@ -160,22 +160,33 @@
                 "hint": "开启后同一次任务里同一个好友的多条说说只评论最新的一条，避免看起来像刷屏",
                 "default": true
             },
-            "auto_act_cron": {
-                "description": "自主行为的触发时间",
-                "type": "string",
-                "hint": "Cron 表达式（分 时 日 月 周）。按这个节奏醒来一次，由模型决定这一刻是发说说、点赞、评论，还是什么都不做。留空表示关闭自主行为",
-                "default": "0 * * * *"
+            "auto_act_enabled": {
+                "description": "开启自主行为",
+                "hint": "打开后，bot 会隔一段随机时间醒来一次，由模型决定这一刻是发说说、点赞、评论，还是什么都不做。关闭则完全不主动行动",
+                "type": "bool",
+                "default": true
             },
-            "auto_act_offset": {
-                "description": "自主行为的时间偏移（秒）",
+            "auto_act_interval_min": {
+                "description": "两次自主行为之间最短间隔（分钟）",
                 "type": "int",
-                "hint": "在基准时间前后随机浮动，别让行踪太机械。设为 1800 表示前后半小时内随机",
+                "hint": "和下面的最长间隔一起决定“多久醒一次”。默认 50~150 分钟随机，不做固定排期",
                 "slider": {
-                    "min": 0,
-                    "max": 3600,
-                    "step": 60
+                    "min": 10,
+                    "max": 360,
+                    "step": 10
                 },
-                "default": 1800
+                "default": 50
+            },
+            "auto_act_interval_max": {
+                "description": "两次自主行为之间最长间隔（分钟）",
+                "type": "int",
+                "hint": "必须不小于最短间隔；相等时就是固定间隔",
+                "slider": {
+                    "min": 10,
+                    "max": 720,
+                    "step": 10
+                },
+                "default": 150
             },
             "auto_act_quiet_hours": {
                 "description": "静默时段",

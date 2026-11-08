@@ -56,12 +56,12 @@ git clone https://github.com/Sihnbaobao/astrbot_plugin_kongjian
 
 ### 自主行为说明
 
-插件不再按固定脚本发说说，而是按 `auto_act_cron` 的节奏醒来一次，把「今天已经做过什么 + 好友最近发了什么 + 人格此刻的念头」交给模型，由模型决定：发一条说说、给谁点个赞、评论一句，还是什么都不做。
+**没有固定排期。** 插件每隔 **50~150 分钟随机**醒一次，把「这一刻能做什么 + 好友最近发了什么 + 人格此刻的念头」交给模型，由模型决定：发一条说说、给谁点个赞、评论一句，还是什么都不做——大多数时候本来就是什么都不做。
 
-- `auto_act_cron`：醒来节奏，默认 `0 * * * *`（每小时一次），留空表示关闭。
-- `auto_act_offset`：基准时间前后的随机浮动（单位**秒**），默认 1800。
-- `auto_act_quiet_hours`：静默时段，默认 `01:00-08:00`。
-- `auto_act_daily_post_limit` / `auto_act_daily_interact_limit`：每天发说说 / 互动的次数上限。
+- `auto_act_enabled`：总开关，默认开。
+- `auto_act_interval_min` / `auto_act_interval_max`：两次醒来之间的随机间隔（分钟），默认 50~150。
+- `auto_act_quiet_hours`：静默时段，默认 `01:00-08:00`，这段时间彻底不醒。
+- `auto_act_daily_post_limit` / `auto_act_daily_interact_limit`：每日上限（默认 1 / 2）。**只是硬止损**，不会告诉模型还剩几次，避免它为了凑配额而发。
 - `comment_cron`：兜底任务，到点扫一遍好友动态，给还没评论过的说说补一条；另有 `comment_max_per_run`（单次最多几条）与 `comment_unique_author`（同一位好友只评一条）防止刷屏。
 
 与人格插件联动：如果装了 `astrbot_plugin_persona_presence`，且在其实例上实现了 `qzone_urge()`（返回一小段“此刻想干什么”的文本），会自动拼进决策上下文；没有这个插件也能正常工作。

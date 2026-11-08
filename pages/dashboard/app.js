@@ -688,7 +688,7 @@ function renderDetail(post, options = {}) {
     del.type = "button";
     del.className = "danger";
     del.textContent = "删除";
-    del.addEventListener("click", () => deletePost(post));
+    del.addEventListener("click", () => deletePost(post, del));
     actions.append(del);
   }
 
@@ -1129,8 +1129,22 @@ async function sendReply(post, comment, content) {
   return false;
 }
 
-async function deletePost(post) {
-  if (!window.confirm("确定删除这条说说吗？")) return;
+async function deletePost(post, button) {
+  // 插件页面跑在 AstrBot 的 sandbox iframe 里（没有 allow-modals），
+  // window.confirm 会被静默拦掉，所以用按钮二次点击代替系统确认框。
+  if (button && button.dataset.confirm !== "1") {
+    button.dataset.confirm = "1";
+    button.dataset.originalText = button.textContent;
+    button.textContent = "再点一次";
+    setNotice("再点一次确认删除这条说说。", "warn");
+    setTimeout(() => {
+      if (!button.dataset.confirm) return;
+      button.dataset.confirm = "";
+      button.textContent = button.dataset.originalText || "删除";
+    }, 4000);
+    return;
+  }
+  if (button) button.disabled = true;
   try {
     await apiPost("page/delete", { id: post.id });
     state.posts = state.posts.filter((item) => item.id !== post.id);
@@ -1142,6 +1156,12 @@ async function deletePost(post) {
     renderFeed();
   } catch (error) {
     setNotice(error.message || "删除失败", "error");
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.dataset.confirm = "";
+      button.textContent = "删除";
+    }
   }
 }
 
