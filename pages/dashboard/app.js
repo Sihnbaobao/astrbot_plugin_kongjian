@@ -53,6 +53,12 @@ const el = {
   detailPane: document.getElementById("detailPane"),
   detailEmpty: document.getElementById("detailEmpty"),
   detailContent: document.getElementById("detailContent"),
+  settingsButton: document.getElementById("settingsButton"),
+  settingsModal: document.getElementById("settingsModal"),
+  settingsBody: document.getElementById("settingsBody"),
+  settingsClose: document.getElementById("settingsClose"),
+  settingsSave: document.getElementById("settingsSave"),
+  settingsHint: document.getElementById("settingsHint"),
 };
 
 function text(value) {
@@ -1254,6 +1260,153 @@ function bindEvents() {
     await uploadFiles(el.mediaInput.files || []);
     el.mediaInput.value = "";
   });
+  el.settingsButton?.addEventListener("click", openSettings);
+  el.settingsClose?.addEventListener("click", closeSettings);
+  el.settingsSave?.addEventListener("click", saveSettings);
+  el.settingsModal?.addEventListener("click", (event) => {
+    if (event.target === el.settingsModal) closeSettings();
+  });
+}
+
+// ===== 插件设置 =====
+
+const SETTINGS_SECTIONS = {
+  llm: "提示词与模型",
+  source: "数据来源",
+  trigger: "定时与自主行为",
+};
+
+function settingsHint(message, isError = false) {
+  if (!el.settingsHint) return;
+  el.settingsHint.textContent = message;
+  el.settingsHint.classList.toggle("is-error", Boolean(isError));
+}
+
+function buildSettingField(path, spec, value) {
+  const wrap = document.createElement("label");
+  wrap.className = "settings-field";
+  wrap.dataset.path = path;
+  wrap.dataset.type = spec.type || "string";
+
+  const name = document.createElement("span");
+  name.className = "settings-label";
+  name.textContent = spec.description || path;
+  wrap.append(name);
+
+  const slider = spec.slider || {};
+  let input;
+  if (spec.type === "bool") {
+    input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = Boolean(value);
+  } else if (spec.type === "int" || spec.type === "float") {
+    input = document.createElement("input");
+    input.type = "number";
+    if (slider.min !== undefined) input.min = slider.min;
+    if (slider.max !== undefined) input.max = slider.max;
+    if (slider.step !== undefined) input.step = slider.step;
+    input.value = value ?? spec.default ?? "";
+  } else if (spec.type === "text" || spec.type === "list") {
+    input = document.createElement("textarea");
+    input.rows = spec.type === "text" ? 4 : 3;
+    if (Array.isArray(value)) {
+      input.value = value.join("\n");
+    } else {
+      input.value = value ?? spec.default ?? "";
+    }
+    if (spec.type === "list") input.placeholder = "一行一个";
+  } else {
+    input = document.createElement("input");
+    input.type = "text";
+    input.value = value ?? spec.default ?? "";
+    if (spec._special === "select_provider") {
+      input.placeholder = "留空则使用当前默认提供商";
+    }
+  }
+  wrap.append(input);
+
+  if (spec.hint) {
+    const hint = document.createElement("small");
+    hint.textContent = spec.hint;
+    wrap.append(hint);
+  }
+  return wrap;
+}
+
+function renderSettings(data) {
+  const schema = data?.schema || {};
+  const values = data?.values || {};
+  el.settingsBody.innerHTML = "";
+  for (const [key, spec] of Object.entries(schema)) {
+    if (!spec || typeof spec !== "object") continue;
+    const section = document.createElement("section");
+    section.className = "settings-section";
+    const title = document.createElement("h3");
+    title.textContent = SETTINGS_SECTIONS[key] || spec.description || key;
+    section.append(title);
+
+    if (spec.type === "object") {
+      const current = values[key] || {};
+      for (const [sub, subSpec] of Object.entries(spec.items || {})) {
+        section.append(buildSettingField(`${key}.${sub}`, subSpec, current[sub]));
+      }
+    } else {
+      section.append(buildSettingField(key, spec, values[key]));
+    }
+    el.settingsBody.append(section);
+  }
+  if (!el.settingsBody.children.length) {
+    el.settingsBody.innerHTML = "<p class='settings-status'>没有可编辑的配置项。</p>";
+  }
+}
+
+function collectSettings() {
+  const result = {};
+  for (const field of el.settingsBody.querySelectorAll(".settings-field")) {
+    const path = field.dataset.path || "";
+    if (!path) continue;
+    const input = field.querySelector("input, textarea");
+    if (!input) continue;
+    const value = field.dataset.type === "bool" ? input.checked : input.value;
+    const [key, sub] = path.split(".");
+    if (sub) {
+      result[key] = result[key] || {};
+      result[key][sub] = value;
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+async function openSettings() {
+  if (!el.settingsModal) return;
+  el.settingsModal.hidden = false;
+  el.settingsBody.innerHTML = "<p class='settings-status'>加载中…</p>";
+  try {
+    renderSettings(await apiGet("page/config"));
+    settingsHint("保存后定时任务会按新参数重启。");
+  } catch (error) {
+    el.settingsBody.innerHTML = "";
+    settingsHint(error.message || "加载配置失败", true);
+  }
+}
+
+function closeSettings() {
+  if (el.settingsModal) el.settingsModal.hidden = true;
+}
+
+async function saveSettings() {
+  if (el.settingsSave) el.settingsSave.disabled = true;
+  try {
+    const data = await apiPost("page/config/update", { values: collectSettings() });
+    const count = Array.isArray(data?.changed) ? data.changed.length : 0;
+    settingsHint(count ? `已保存 ${count} 项，定时任务已按新参数重启。` : "没有需要保存的改动。");
+  } catch (error) {
+    settingsHint(error.message || "保存失败", true);
+  } finally {
+    if (el.settingsSave) el.settingsSave.disabled = false;
+  }
 }
 
 async function init() {

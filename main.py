@@ -1,4 +1,5 @@
 import base64
+import json
 
 from astrbot.api import logger
 from astrbot.api.event import filter
@@ -75,6 +76,13 @@ class QzonePlugin(Star):
             ("page/comment", self.page_comment, ["POST"], "Qzone dashboard comment"),
             ("page/reply", self.page_reply, ["POST"], "Qzone dashboard reply"),
             ("page/delete", self.page_delete, ["POST"], "Qzone dashboard delete"),
+            ("page/config", self.page_config, ["GET"], "Qzone plugin config"),
+            (
+                "page/config/update",
+                self.page_config_update,
+                ["POST"],
+                "Qzone plugin config update",
+            ),
             (
                 "page/upload-media",
                 self.page_upload_media,
@@ -497,6 +505,116 @@ class QzonePlugin(Star):
                         or "image/jpeg",
                     }
                 },
+            }
+
+        return await self._page_json(handler)
+
+    # ==================== 配置读写 ====================
+
+    def _config_schema(self) -> dict:
+        path = self.cfg.plugin_dir / "_conf_schema.json"
+        try:
+            return json.loads(path.read_text(encoding="utf-8-sig"))
+        except Exception as e:
+            logger.error(f"读取插件配置 schema 失败：{e}")
+            return {}
+
+    @staticmethod
+    def _coerce_config_value(spec: dict, value):
+        """按 schema 把前端传来的值转成正确类型，顺手做范围裁剪。"""
+        kind = spec.get("type")
+        slider = spec.get("slider") or {}
+        if kind == "bool":
+            return bool(value)
+        if kind in ("int", "float"):
+            try:
+                number = int(value) if kind == "int" else float(value)
+            except (TypeError, ValueError):
+                return None
+            if "min" in slider:
+                number = max(slider["min"], number)
+            if "max" in slider:
+                number = min(slider["max"], number)
+            return number
+        if kind == "list":
+            if isinstance(value, str):
+                return [line.strip() for line in value.splitlines() if line.strip()]
+            if isinstance(value, (list, tuple)):
+                return [str(item).strip() for item in value if str(item).strip()]
+            return []
+        return "" if value is None else str(value)
+
+    def _apply_config(self, values: dict) -> list[str]:
+        """把前端提交的值写回插件配置，返回实际改动的键。"""
+        schema = self._config_schema()
+        changed: list[str] = []
+        for key, spec in schema.items():
+            if not isinstance(spec, dict):
+                continue
+            if spec.get("type") == "object":
+                section = values.get(key)
+                if not isinstance(section, dict):
+                    continue
+                node = getattr(self.cfg, key, None)
+                if node is None:
+                    continue
+                for sub, sub_spec in (spec.get("items") or {}).items():
+                    if sub not in section:
+                        continue
+                    converted = self._coerce_config_value(sub_spec, section[sub])
+                    if converted is None:
+                        continue
+                    setattr(node, sub, converted)
+                    changed.append(f"{key}.{sub}")
+            elif key in values:
+                converted = self._coerce_config_value(spec, values[key])
+                if converted is None:
+                    continue
+                setattr(self.cfg, key, converted)
+                changed.append(key)
+        if changed:
+            self.cfg.save_config()
+        return changed
+
+    async def _reload_schedulers(self) -> None:
+        """配置改动后按新参数重建定时任务。"""
+        if self.auto_comment:
+            await self.auto_comment.terminate()
+            self.auto_comment = None
+        if self.auto_act:
+            await self.auto_act.terminate()
+            self.auto_act = None
+        if self.cfg.trigger.comment_cron:
+            self.auto_comment = AutoComment(self.cfg, self.service, self.sender)
+        if self.cfg.trigger.auto_act_enabled:
+            self.auto_act = AutoAct(self.cfg, self.service, self.sender)
+            self.auto_act.start()
+
+    async def page_config(self):
+        async def handler():
+            values = json.loads(
+                json.dumps(dict(self.cfg.raw_data()), ensure_ascii=False, default=str)
+            )
+            return {
+                "ok": True,
+                "data": {"schema": self._config_schema(), "values": values},
+            }
+
+        return await self._page_json(handler)
+
+    async def page_config_update(self):
+        async def handler():
+            body = await self._page_json_body()
+            values = body.get("values")
+            if not isinstance(values, dict):
+                raise RuntimeError("配置格式不正确")
+            changed = self._apply_config(values)
+            if changed:
+                await self._reload_schedulers()
+            return {
+                "ok": True,
+                "data": {"changed": changed},
+                "message": "配置已保存" if changed else "没有需要保存的改动",
             }
 
         return await self._page_json(handler)

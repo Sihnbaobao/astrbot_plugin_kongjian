@@ -1013,3 +1013,98 @@ button:active {
   background: rgba(255,255,255,0.2);
   transform: scale(1.1);
 }
+
+/* ===== 插件设置 ===== */
+.settings-trigger {
+  margin: 12px 16px 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 13px;
+  box-shadow: var(--shadow-sm);
+}
+.settings-trigger:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.settings-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+}
+.settings-modal[hidden] { display: none; }
+
+.settings-card {
+  width: min(760px, 100%);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.settings-head strong { font-size: 15px; }
+.settings-body {
+  padding: 8px 20px 20px;
+  overflow-y: auto;
+}
+.settings-section { padding: 12px 0 4px; }
+.settings-section h3 {
+  margin: 6px 0 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+}
+.settings-label { font-size: 13px; color: var(--text-primary); }
+.settings-field input[type="text"],
+.settings-field input[type="number"],
+.settings-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-color);
+  color: var(--text-primary);
+  resize: vertical;
+}
+.settings-field input:focus,
+.settings-field textarea:focus { border-color: var(--accent); }
+.settings-field input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
+.settings-field small,
+.settings-status { font-size: 12px; color: var(--text-secondary); }
+.settings-status.is-error { color: var(--danger); }
+.settings-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.settings-foot .primary { padding: 10px 18px; border-radius: var(--radius-full); }
