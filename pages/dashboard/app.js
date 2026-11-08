@@ -1337,24 +1337,34 @@ function renderSettings(data) {
   const schema = data?.schema || {};
   const values = data?.values || {};
   el.settingsBody.innerHTML = "";
+
+  const general = document.createElement("section");
+  general.className = "settings-section";
+  const generalTitle = document.createElement("h3");
+  generalTitle.textContent = "常规";
+  general.append(generalTitle);
+
   for (const [key, spec] of Object.entries(schema)) {
     if (!spec || typeof spec !== "object") continue;
+    if (spec.type !== "object") {
+      general.append(buildSettingField(key, spec, values[key]));
+      continue;
+    }
+    const items = Object.entries(spec.items || {});
+    if (!items.length) continue;
     const section = document.createElement("section");
     section.className = "settings-section";
     const title = document.createElement("h3");
     title.textContent = SETTINGS_SECTIONS[key] || spec.description || key;
     section.append(title);
-
-    if (spec.type === "object") {
-      const current = values[key] || {};
-      for (const [sub, subSpec] of Object.entries(spec.items || {})) {
-        section.append(buildSettingField(`${key}.${sub}`, subSpec, current[sub]));
-      }
-    } else {
-      section.append(buildSettingField(key, spec, values[key]));
+    const current = values[key] || {};
+    for (const [sub, subSpec] of items) {
+      section.append(buildSettingField(`${key}.${sub}`, subSpec, current[sub]));
     }
     el.settingsBody.append(section);
   }
+
+  if (general.children.length > 1) el.settingsBody.append(general);
   if (!el.settingsBody.children.length) {
     el.settingsBody.innerHTML = "<p class='settings-status'>没有可编辑的配置项。</p>";
   }
