@@ -1,6 +1,8 @@
 import copy
+import json5
 import random
 import re
+import time
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -13,11 +15,13 @@ from .model import Comment, Post
 SCENE_POST = "post"
 SCENE_COMMENT = "comment"
 SCENE_REPLY = "reply"
+SCENE_ACT = "act"
 
 SCENE_LABELS = {
     SCENE_POST: "写说说",
     SCENE_COMMENT: "评论说说",
     SCENE_REPLY: "回复评论",
+    SCENE_ACT: "自主行动",
 }
 
 TIME_PLACEHOLDER = "{current_time}"
@@ -232,7 +236,8 @@ class LLMAction:
         self, event: Any | None
     ) -> tuple[str, list[dict[str, Any]]]:
         if not event:
-            return "", []
+            # 定时任务没有消息事件，退回到全局默认人格
+            return await self._get_default_persona_context()
 
         umo = self._get_event_umo(event)
         if not umo:
@@ -272,6 +277,20 @@ class LLMAction:
         except Exception as e:
             logger.warning(f"解析当前会话人格失败，将仅使用插件提示词: {e}")
             return "", []
+
+    async def _get_default_persona_context(self) -> tuple[str, list[dict[str, Any]]]:
+        """定时任务没有消息事件时，取全局默认人格作为行为基准。"""
+        try:
+            persona = await self.context.persona_manager.get_default_persona_v3()
+        except Exception as e:
+            logger.warning(f"获取默认人格失败：{e}")
+            return "", []
+        if not persona:
+            return "", []
+        return (
+            str(persona.get("prompt") or "").strip(),
+            copy.deepcopy(persona.get("_begin_dialogs_processed") or []),
+        )
 
     def _render_prompt(self, text: str, scene: str) -> str:
         """填充提示词占位符：{current_time} / {scene}"""
@@ -495,3 +514,119 @@ class LLMAction:
 
         except Exception as e:
             raise ValueError(f"LLM 调用失败：{e}")
+
+    @staticmethod
+    def _parse_json_object(text: str) -> dict[str, Any] | None:
+        """从模型输出里取出一个 JSON 对象，容忍代码块和前后废话。"""
+        raw = str(text or "").strip()
+        if not raw:
+            return None
+        for candidate in (raw,):
+            try:
+                data = json5.loads(candidate)
+            except Exception:
+                data = None
+            if isinstance(data, dict):
+                return data
+        match = re.search(r"\{.*\}", raw, re.S)
+        if not match:
+            return None
+        try:
+            data = json5.loads(match.group(0))
+        except Exception:
+            return None
+        return data if isinstance(data, dict) else None
+
+    @staticmethod
+    def _post_snippet(post: Post, limit: int = 100) -> str:
+        text = re.sub(r"\s+", " ", post.text or post.rt_con or "").strip()
+        return text[:limit] if text else "[无文字内容]"
+
+    @staticmethod
+    def _time_ago(ts: int) -> str:
+        if not ts:
+            return "时间未知"
+        minutes = max(0, int((time.time() - ts) / 60))
+        if minutes < 60:
+            return f"{minutes} 分钟前"
+        hours = minutes // 60
+        if hours < 24:
+            return f"{hours} 小时前"
+        return f"{hours // 24} 天前"
+
+    async def decide_action(
+        self,
+        candidates: list[Post],
+        *,
+        today_posts: int,
+        today_interacts: int,
+        post_limit: int,
+        interact_limit: int,
+        urge: str = "",
+    ) -> dict[str, Any] | None:
+        """让模型决定这一刻要不要主动做点什么。
+
+        Args:
+            candidates: 还没互动过的好友动态，按时间从新到旧。
+            today_posts: 今天已经自主发过几条说说。
+            today_interacts: 今天已经自主互动过几次。
+            post_limit: 今天允许发说说的次数。
+            interact_limit: 今天允许互动的次数。
+            urge: 人格插件给出的“此刻念头”，可为空。
+
+        Returns:
+            解析后的决策字典（action/target/text/reason），失败返回 None。
+        """
+        provider = self._get_provider(
+            self.cfg.llm.act_provider_id or self.cfg.llm.post_provider_id
+        )
+        if not isinstance(provider, Provider):
+            logger.error("自主行动缺少可用的 LLM 提供商")
+            return None
+
+        lines = [
+            "# 今天的自主活动",
+            f"发说说 {today_posts}/{post_limit} 次，互动 {today_interacts}/{interact_limit} 次",
+        ]
+        if urge:
+            lines.extend(["", "# 此刻的念头", urge])
+        lines.extend(["", "# 好友最近的动态"])
+        if candidates:
+            for index, post in enumerate(candidates):
+                lines.append(
+                    f"{index}. {post.name}｜{self._time_ago(post.create_time)}｜"
+                    f"{self._post_snippet(post)}"
+                )
+        else:
+            lines.append("暂时没有新的动态，如果真想说话，只能自己发说说。")
+
+        task_prompt, has_time = self._build_task_prompt(
+            SCENE_ACT, self.cfg.llm.act_prompt
+        )
+        system_prompt, contexts = await self._build_request_context(
+            event=None,
+            task_prompt=self._join_prompt_parts(
+                task_prompt,
+                "# 输出格式\n只输出一个 JSON 对象，不要代码块，不要解释。",
+            ),
+            prompt_has_time=has_time,
+        )
+
+        try:
+            response = await provider.text_chat(
+                system_prompt=system_prompt,
+                prompt="\n".join(lines),
+                contexts=contexts,
+            )
+        except Exception as e:
+            logger.warning(f"自主行动决策调用失败：{e}")
+            return None
+
+        decision = self._parse_json_object(response.completion_text)
+        if not decision:
+            logger.warning(
+                f"自主行动决策解析失败：{str(response.completion_text)[:200]}"
+            )
+            return None
+        logger.info(f"自主行动决策：{decision}")
+        return decision

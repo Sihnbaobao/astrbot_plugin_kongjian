@@ -91,6 +91,8 @@ class AutoRandomCronTask:
                 trigger=DateTrigger(run_date=target_time, timezone=self.timezone),
                 name=f"{self.job_name}_once_{int(base_time.timestamp())}",
                 max_instances=1,
+                # 事件循环被长任务占住时也要补跑，否则一次性任务被跳过会永久断链
+                misfire_grace_time=None,
             )
         except Exception as e:
             if self._terminated:
@@ -176,27 +178,3 @@ class AutoComment(AutoRandomCronTask):
                 logger.exception(
                     f"[{self.job_name}] 跳过说说评论失败: tid={post.tid}, uin={post.uin}, name={post.name}, error={e}"
                 )
-
-
-class AutoPublish(AutoRandomCronTask):
-    def __init__(
-        self,
-        config: PluginConfig,
-        service: PostService,
-        sender: Sender,
-    ):
-        cron = config.trigger.publish_cron
-        timezone = config.timezone
-        offset = config.trigger.publish_offset
-        super().__init__("AutoPublish", cron, timezone, offset)
-        self.service = service
-        self.sender = sender
-
-    async def do_task(self):
-        try:
-            text = await self.service.llm.generate_post()
-        except Exception as e:
-            logger.error(f"自动生成内容失败：{e}")
-            return
-        post = await self.service.publish_post(text=text)
-        await self.sender.send_admin_post(post, message="定时发说说")

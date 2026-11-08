@@ -122,6 +122,8 @@ class LLMConfig(ConfigNode):
     comment_prompt: str
     reply_provider_id: str
     reply_prompt: str
+    act_provider_id: str
+    act_prompt: str
 
 
 class SourceConfig(ConfigNode):
@@ -142,13 +144,15 @@ class SourceConfig(ConfigNode):
 
 
 class TriggerConfig(ConfigNode):
-    publish_cron: str
-    publish_offset: int
     comment_cron: str
     comment_offset: int
     comment_max_per_run: int
     comment_unique_author: bool
-    read_prob: float
+    auto_act_cron: str
+    auto_act_offset: int
+    auto_act_quiet_hours: str
+    auto_act_daily_post_limit: int
+    auto_act_daily_interact_limit: int
     send_admin: bool
     like_when_comment: bool
 

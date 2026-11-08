@@ -1,5 +1,4 @@
 import base64
-import random
 
 from astrbot.api import logger
 from astrbot.api.event import filter
@@ -9,13 +8,13 @@ from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
     AiocqhttpMessageEvent,
 )
 
-from .core.campus_wall import CampusWall
 from .core.config import PluginConfig
 from .core.db import PostDB
 from .core.llm_action import LLMAction
 from .core.model import Comment, Post
 from .core.qzone import QzoneAPI, QzoneParser, QzoneSession
-from .core.scheduler import AutoComment, AutoPublish
+from .core.autonomy import AutoAct
+from .core.scheduler import AutoComment
 from .core.sender import Sender
 from .core.service import PostService
 from .core.utils import get_ats, get_image_urls, parse_range
@@ -46,24 +45,24 @@ class QzonePlugin(Star):
         self.sender = Sender(self.cfg)
         # 操作服务
         self.service = PostService(self.qzone, self.session, self.db, self.llm)
-        # 表白墙
-        self.campus_wall = CampusWall(self.cfg, self.service, self.db, self.sender)
         # 自动评论模块
         self.auto_comment: AutoComment | None = None
-        # 自动发说说模块
-        self.auto_publish: AutoPublish | None = None
+        # 自主行为模块
+        self.auto_act: AutoAct | None = None
         self._page_post_refs: dict[str, Post] = {}
         self._register_page_web_apis()
 
     async def initialize(self):
         """插件加载时触发"""
         await self.db.initialize()
+        # 定时任务与后台通知都依赖 CQHttp 客户端，尽早绑定一次
+        self._capture_page_client()
 
         if not self.auto_comment and self.cfg.trigger.comment_cron:
             self.auto_comment = AutoComment(self.cfg, self.service, self.sender)
 
-        if not self.auto_publish and self.cfg.trigger.publish_cron:
-            self.auto_publish = AutoPublish(self.cfg, self.service, self.sender)
+        if not self.auto_act and self.cfg.trigger.auto_act_cron:
+            self.auto_act = AutoAct(self.cfg, self.service, self.sender)
 
     def _register_page_web_apis(self) -> None:
         routes = (
@@ -507,50 +506,15 @@ class QzonePlugin(Star):
             await self.qzone.close()
         if self.auto_comment:
             await self.auto_comment.terminate()
-        if self.auto_publish:
-            await self.auto_publish.terminate()
+        if self.auto_act:
+            await self.auto_act.terminate()
 
     @filter.platform_adapter_type(filter.PlatformAdapterType.AIOCQHTTP)
-    async def prob_read_feed(self, event: AiocqhttpMessageEvent):
-        """监听消息"""
+    async def capture_client(self, event: AiocqhttpMessageEvent):
+        """记录 CQHttp 客户端，定时任务和后台通知都依赖它。"""
         if not self.cfg.client:
             self.cfg.client = event.bot
             logger.debug("QQ空间所需的 CQHttp 客户端已初始化")
-
-        # 按概率触发点赞+评论
-        sender_id = event.get_sender_id()
-        if (
-            not self.cfg.source.is_ignore_user(sender_id)
-            and random.random() < self.cfg.trigger.read_prob
-        ):
-            target_id = event.get_sender_id()
-            posts = await self.service.query_feeds(
-                target_id=target_id, pos=0, num=1, no_self=True, no_commented=True
-            )
-            for post in posts:
-                try:
-                    await self.service.comment_posts(post, event=event)
-                    if self.cfg.trigger.like_when_comment:
-                        await self.service.like_posts(post)
-                    await self.sender.send_post(
-                        event,
-                        post,
-                        message="触发读说说",
-                        send_admin=self.cfg.trigger.send_admin,
-                    )
-                except Exception as e:
-                    logger.error(e)
-
-    @filter.permission_type(filter.PermissionType.ADMIN)
-    @filter.command("查看访客")
-    async def view_visitor(self, event: AiocqhttpMessageEvent):
-        """查看访客"""
-        try:
-            msg = await self.service.view_visitor()
-            await self.sender.send_msg(event, msg)
-        except Exception as e:
-            yield event.plain_result(str(e))
-            logger.error(e)
 
     async def _get_posts(
         self,
@@ -590,6 +554,7 @@ class QzonePlugin(Star):
             event.stop_event()
             return []
 
+    @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("看说说", alias={"查看说说"})
     async def view_feed(self, event: AiocqhttpMessageEvent):
         """
@@ -598,34 +563,6 @@ class QzonePlugin(Star):
         posts = await self._get_posts(event, with_detail=True)
         for post in posts:
             await self.sender.send_post(event, post)
-
-    @filter.command("评说说", alias={"评论说说", "读说说"})
-    async def comment_feed(self, event: AiocqhttpMessageEvent):
-        """评说说 <序号/范围>"""
-        posts = await self._get_posts(event, no_commented=True, no_self=True)
-        for post in posts:
-            try:
-                await self.service.comment_posts(post, event=event)
-                msg = "已评论"
-                if self.cfg.trigger.like_when_comment:
-                    await self.service.like_posts(post)
-                    msg += "并点赞"
-                await self.sender.send_post(event, post, message=msg)
-            except Exception as e:
-                await event.send(event.plain_result(str(e)))
-                logger.error(e)
-
-    @filter.command("赞说说")
-    async def like_feed(self, event: AiocqhttpMessageEvent):
-        """赞说说 <序号/范围>"""
-        posts = await self._get_posts(event)
-        for post in posts:
-            try:
-                await self.service.like_posts(post)
-                await self.sender.send_post(event, post, message="已点赞")
-            except Exception as e:
-                await event.send(event.plain_result(str(e)))
-                logger.error(e)
 
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("发说说")
@@ -642,34 +579,6 @@ class QzonePlugin(Star):
             logger.error(e)
 
     @filter.permission_type(filter.PermissionType.ADMIN)
-    @filter.command("写说说", alias={"写稿"})
-    async def write_feed(self, event: AiocqhttpMessageEvent):
-        """写说说 <主题> <图片>, 由AI写完后管理员用‘通过稿件 ID’命令发布"""
-        group_id = event.get_group_id()
-        topic = event.message_str.partition(" ")[2]
-        try:
-            text = await self.llm.generate_post(
-                group_id=group_id, topic=topic, event=event
-            )
-        except Exception as e:
-            yield event.plain_result(str(e))
-            logger.error(e)
-            return
-        images = await get_image_urls(event)
-        if not text and not images:
-            yield event.plain_result("说说生成失败")
-            return
-        self_id = event.get_self_id()
-        post = Post(
-            uin=int(self_id),
-            text=text or "",
-            images=images,
-            status="pending",
-        )
-        await self.db.save(post)
-        await self.sender.send_post(event, post)
-
-    @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("删说说")
     async def delete_feed(self, event: AiocqhttpMessageEvent):
         """删说说 <稿件ID>"""
@@ -681,59 +590,6 @@ class QzonePlugin(Star):
             except Exception as e:
                 await event.send(event.plain_result(str(e)))
                 logger.error(e)
-
-    @filter.command("回评", alias={"回复评论"})
-    async def reply_comment(
-        self, event: AiocqhttpMessageEvent, post_id: int = -1, comment_index: int = -1
-    ):
-        """回评 <稿件ID> <评论序号>, 默认回复最后一条非己评论"""
-        post = await self.db.get(post_id)
-        if not post:
-            yield event.plain_result(f"稿件#{post_id}不存在")
-            return
-        try:
-            await self.service.reply_comment(post, index=comment_index, event=event)
-            await self.sender.send_post(event, post, message="已回复评论")
-        except Exception as e:
-            await event.send(event.plain_result(str(e)))
-            logger.error(e)
-
-    @filter.command("投稿")
-    async def contribute_post(self, event: AiocqhttpMessageEvent):
-        """投稿 <内容> <图片>"""
-        await self.campus_wall.contribute(event)
-
-    @filter.command("匿名投稿")
-    async def anon_contribute_post(self, event: AiocqhttpMessageEvent):
-        """匿名投稿 <内容> <图片>"""
-        await self.campus_wall.contribute(event, anon=True)
-
-    @filter.command("撤稿")
-    async def recall_post(self, event: AiocqhttpMessageEvent):
-        """删除稿件 <稿件ID>"""
-        async for msg in self.campus_wall.delete(event):
-            yield msg
-
-    @filter.permission_type(filter.PermissionType.ADMIN)
-    @filter.command("看稿", alias={"查看稿件"})
-    async def view_post(self, event: AiocqhttpMessageEvent):
-        "查看稿件 <稿件ID>, 默认最新稿件"
-        async for msg in self.campus_wall.view(event):
-            yield msg
-
-    @filter.permission_type(filter.PermissionType.ADMIN)
-    @filter.command("过稿", alias={"通过稿件", "通过投稿"})
-    async def approve_post(self, event: AiocqhttpMessageEvent):
-        """通过稿件 <稿件ID>"""
-        async for msg in self.campus_wall.approve(event):
-            yield msg
-
-    @filter.permission_type(filter.PermissionType.ADMIN)
-    @filter.command("拒稿", alias={"拒绝稿件", "拒绝投稿"})
-    async def reject_post(self, event: AiocqhttpMessageEvent):
-        """拒绝稿件 <稿件ID> <原因>"""
-        async for msg in self.campus_wall.reject(event):
-            yield msg
 
     @filter.llm_tool()
     async def llm_view_feed(
