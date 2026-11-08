@@ -147,6 +147,23 @@
                 },
                 "default": 600
             },
+            "comment_max_per_run": {
+                "description": "自动评论单次最多处理几条",
+                "type": "int",
+                "hint": "一次定时任务最多评论几条说说，默认 1；设为 1 时每次只跟一条说说互动，避免好友少时连着评论同一个人的多条动态",
+                "slider": {
+                    "min": 1,
+                    "max": 5,
+                    "step": 1
+                },
+                "default": 1
+            },
+            "comment_unique_author": {
+                "description": "自动评论时同一个人只评论一条",
+                "type": "bool",
+                "hint": "开启后同一次任务里同一个好友的多条说说只评论最新的一条，避免看起来像刷屏",
+                "default": true
+            },
             "read_prob": {
                 "description": "聊天时触发评说说的概率",
                 "type": "float",

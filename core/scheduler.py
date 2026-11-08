@@ -1,3 +1,4 @@
+import asyncio
 import random
 import zoneinfo
 from datetime import datetime, timedelta
@@ -9,6 +10,7 @@ from apscheduler.triggers.date import DateTrigger
 from astrbot.api import logger
 
 from .config import PluginConfig
+from .model import Post
 from .sender import Sender
 from .service import PostService
 
@@ -39,7 +41,7 @@ class AutoRandomCronTask:
         self._register_task()
 
         logger.info(
-            f"[{self.job_name}] 已启动，任务周期：{self.cron_expr}，偏移范围：±{self.offset_seconds} 分钟"
+            f"[{self.job_name}] 已启动，任务周期：{self.cron_expr}，偏移范围：±{self.offset_seconds} 秒"
         )
 
     def _register_task(self):
@@ -146,7 +148,25 @@ class AutoComment(AutoRandomCronTask):
             no_self=True,
             no_commented=True,
         )
+
+        # 好友少时动态流里常是同一个人连发多条，逐条评论看起来像刷屏：
+        # 单次最多处理 N 条，且默认同一个人只评论一条。
+        picked: list[Post] = []
+        seen_uins: set[int] = set()
+        limit = int(self.cfg.trigger.comment_max_per_run or 1)
         for post in posts:
+            if self.cfg.trigger.comment_unique_author:
+                if post.uin in seen_uins:
+                    continue
+                seen_uins.add(post.uin)
+            picked.append(post)
+            if len(picked) >= limit:
+                break
+
+        for index, post in enumerate(picked):
+            if index:
+                # 多条之间留一点随机间隔，避免同一时间连续发评论
+                await asyncio.sleep(random.uniform(5, 10))
             try:
                 await self.service.comment_posts(post)
                 if self.cfg.trigger.like_when_comment:

@@ -146,6 +146,8 @@ class TriggerConfig(ConfigNode):
     publish_offset: int
     comment_cron: str
     comment_offset: int
+    comment_max_per_run: int
+    comment_unique_author: bool
     read_prob: float
     send_admin: bool
     like_when_comment: bool
@@ -161,7 +163,7 @@ class PluginConfig(ConfigNode):
     show_name: bool
 
     _DB_VERSION = 5
-    _plugin_name = "astrbot_plugin_qzone"
+    _plugin_name = "astrbot_plugin_kongjian"
 
     def __init__(self, cfg: AstrBotConfig, context: Context):
         super().__init__(cfg)

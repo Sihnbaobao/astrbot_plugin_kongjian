@@ -326,7 +326,11 @@ class PostService:
         await self._refresh_comments(post)
         candidates = [c for c in post.comments if self._comment_key(c) == target_key]
         if candidates:
-            comment = candidates[occurrence] if occurrence < len(candidates) else candidates[0]
+            comment = (
+                candidates[occurrence]
+                if occurrence < len(candidates)
+                else candidates[0]
+            )
         else:
             comment = target
         if not comment.tid:

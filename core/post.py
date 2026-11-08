@@ -135,7 +135,9 @@ class Post(pydantic.BaseModel):
         img = await style.AioRender(
             text=self.to_str(), useImageUrl=True, autoPage=False
         )
-        return str(img.Save(StarTools.get_data_dir("astrbot_plugin_qzone") / "cache"))
+        return str(
+            img.Save(StarTools.get_data_dir("astrbot_plugin_kongjian") / "cache")
+        )
 
     def update(self, **kwargs):
         """更新 Post 对象的属性"""

@@ -84,7 +84,7 @@ class QzonePlugin(Star):
         )
         for endpoint, handler, methods, desc in routes:
             self.context.register_web_api(
-                f"/astrbot_plugin_qzone/{endpoint}",
+                f"/astrbot_plugin_kongjian/{endpoint}",
                 handler,
                 methods,
                 desc,
@@ -222,7 +222,9 @@ class QzonePlugin(Star):
                     "content": comment.content,
                     "created_at": int(comment.create_time or 0),
                     "can_reply": bool(comment.tid and comment.uin),
-                    "parent_id": str(comment.parent_tid) if comment.parent_tid else None,
+                    "parent_id": str(comment.parent_tid)
+                    if comment.parent_tid
+                    else None,
                 }
                 for index, comment in enumerate(post.comments or [], start=1)
             ]
@@ -399,7 +401,8 @@ class QzonePlugin(Star):
                     (
                         item
                         for item in post.comments
-                        if not item.parent_tid and str(item.tid) == str(target.parent_tid)
+                        if not item.parent_tid
+                        and str(item.tid) == str(target.parent_tid)
                     ),
                     None,
                 )

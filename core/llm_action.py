@@ -63,9 +63,7 @@ class LLMAction:
         return msg_dt >= since
 
     @staticmethod
-    def _build_context(
-        round_messages: list[dict[str, Any]]
-    ) -> list[dict[str, str]]:
+    def _build_context(round_messages: list[dict[str, Any]]) -> list[dict[str, str]]:
         """
         把所有回合里的纯文本消息打包成 openai-style 的 user 上下文。
         只有存在非空文本片段的消息才会保留，避免把只含图片/表情的消息当成有效内容。
@@ -170,7 +168,9 @@ class LLMAction:
             try:
                 contexts = await self._get_msg_contexts(candidate)
             except Exception as e:
-                logger.warning(f"获取群聊 {candidate} 的聊天记录失败，切换下一个会话: {e}")
+                logger.warning(
+                    f"获取群聊 {candidate} 的聊天记录失败，切换下一个会话: {e}"
+                )
                 continue
             if contexts:
                 if len(tried) > 1:

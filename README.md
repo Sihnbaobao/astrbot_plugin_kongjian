@@ -1,16 +1,16 @@
 
 <div align="center">
 
-![:name](https://count.getloli.com/@astrbot_plugin_qzone?name=astrbot_plugin_qzone&theme=minecraft&padding=6&offset=0&align=top&scale=1&pixelated=1&darkmode=auto)
+![:name](https://count.getloli.com/@astrbot_plugin_kongjian?name=astrbot_plugin_kongjian&theme=minecraft&padding=6&offset=0&align=top&scale=1&pixelated=1&darkmode=auto)
 
-# astrbot_plugin_qzone
+# astrbot_plugin_kongjian
 
 _✨ [astrbot](https://github.com/AstrBotDevs/AstrBot) QQ空间对接插件 ✨_  
 
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![AstrBot](https://img.shields.io/badge/AstrBot-3.4%2B-orange.svg)](https://github.com/Soulter/AstrBot)
-[![GitHub](https://img.shields.io/badge/作者-Zhalslar-blue)](https://github.com/Zhalslar)
+[![GitHub](https://img.shields.io/badge/作者-Sihnbaobao-blue)](https://github.com/Sihnbaobao)
 
 </div>
 
@@ -18,16 +18,19 @@ _✨ [astrbot](https://github.com/AstrBotDevs/AstrBot) QQ空间对接插件 ✨_
 
 QQ空间对接插件, 可自动发说说、表白墙投稿审核、查看说说、点赞、评论等
 
+> 本仓库自 v0.1.0 起自主维护，源码基线为 `astrbot_plugin_qzone` v3.2.0（原作者 Zhalslar，上游仓库已不可访问）。
+> 原项目采用 MIT 协议，本仓库保留原始版权声明。
+
 ## 📦 安装
 
-- 直接在astrbot的插件市场搜索astrbot_plugin_qzone，点击安装，等待完成即可
+- 直接在astrbot的插件市场搜索 astrbot_plugin_kongjian，点击安装，等待完成即可
 
 - 也可以克隆源码到插件文件夹：
 
 ```bash
 # 克隆仓库到插件目录
 cd /AstrBot/data/plugins
-git clone https://github.com/Zhalslar/astrbot_plugin_qzone
+git clone https://github.com/Sihnbaobao/astrbot_plugin_kongjian
 
 # 控制台重启AstrBot
 ```
@@ -53,10 +56,11 @@ git clone https://github.com/Zhalslar/astrbot_plugin_qzone
 
 ### 定时调度说明
 
-- `publish_cron` / `comment_cron` 现在表示任务的**基准时间**（Cron 表达式：分 时 日 月 周）。
-- `publish_offset_minutes` / `comment_offset_minutes` 表示围绕基准时间的随机前后浮动范围（单位分钟，`±N`）。
-- 例如：`publish_cron = 30 23 * * *` 且 `publish_offset_minutes = 30`，表示每天会在 `23:00 ~ 24:00` 间随机执行一次自动发说说。
+- `publish_cron` / `comment_cron` 表示任务的**基准时间**（Cron 表达式：分 时 日 月 周）。
+- `publish_offset` / `comment_offset` 表示围绕基准时间的随机前后浮动范围（单位**秒**，`±N`）。
+- 例如：`publish_cron = 30 23 * * *` 且 `publish_offset = 1800`，表示每天会在 `23:00 ~ 24:00` 间随机执行一次自动发说说。
 - 将偏移设为 `0` 可关闭浮动，严格按 Cron 时间触发。
+- 定时评论另有两条限制：`comment_max_per_run`（单次最多评论几条，默认 1）与 `comment_unique_author`（同一位好友单次只评论一条，默认开启）。好友较少时保持默认即可，避免连着评论同一个人的多条说说。
 
 ## 🐔 使用说明（QzonePlugin）
 
@@ -123,7 +127,7 @@ git clone https://github.com/Zhalslar/astrbot_plugin_qzone
 
 ## 📌 注意事项
 
-- 想第一时间得到反馈的可以来作者的插件反馈群（QQ群）：460973561（不点star不给进）
+- 问题与建议请直接提 [Issue](https://github.com/Sihnbaobao/astrbot_plugin_kongjian/issues)。
 
 ## 🤝 鸣谢
 
