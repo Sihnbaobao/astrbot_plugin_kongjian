@@ -3,6 +3,7 @@
 import asyncio
 import json
 import random
+import time
 from datetime import time as dtime
 
 from astrbot.api import logger
@@ -82,7 +83,13 @@ class AutoAct:
         return self.cfg.now().strftime("%Y-%m-%d")
 
     def _load_state(self) -> dict:
-        state = {"date": self._today(), "posts": 0, "interacts": 0, "done": []}
+        state = {
+            "date": self._today(),
+            "posts": 0,
+            "interacts": 0,
+            "done": [],
+            "next_post_at": 0,
+        }
         try:
             data = json.loads(self.state_path.read_text(encoding="utf-8"))
         except FileNotFoundError:
@@ -91,8 +98,11 @@ class AutoAct:
             logger.warning(f"[AutoAct] 读取状态失败：{e}")
             return state
         if not isinstance(data, dict) or data.get("date") != state["date"]:
+            # 跨天后次数清零，但两条说说之间的冷却要延续
+            state["next_post_at"] = int(data.get("next_post_at") or 0)
             return state
         state["posts"] = int(data.get("posts") or 0)
+        state["next_post_at"] = int(data.get("next_post_at") or 0)
         state["interacts"] = int(data.get("interacts") or 0)
         state["done"] = [str(tid) for tid in (data.get("done") or [])]
         return state
@@ -138,6 +148,10 @@ class AutoAct:
             logger.debug(f"[AutoAct] 读取人格念头失败：{e}")
         return ""
 
+    def _post_gap_ready(self, state: dict) -> bool:
+        """两条说说之间要隔一段随机时长，避免每天准点一条。"""
+        return time.time() >= int(state.get("next_post_at") or 0)
+
     async def _candidates(self, state: dict) -> list[Post]:
         try:
             posts = await self.service.query_feeds(pos=0, num=10, no_self=True)
@@ -157,7 +171,7 @@ class AutoAct:
         state = self._load_state()
         post_limit = int(self.cfg.trigger.auto_act_daily_post_limit or 0)
         interact_limit = int(self.cfg.trigger.auto_act_daily_interact_limit or 0)
-        allow_post = state["posts"] < post_limit
+        allow_post = state["posts"] < post_limit and self._post_gap_ready(state)
         allow_interact = state["interacts"] < interact_limit
         if not allow_post and not allow_interact:
             logger.debug("[AutoAct] 今日额度已用完，跳过")
@@ -221,7 +235,13 @@ class AutoAct:
             logger.warning(f"[AutoAct] 发布说说失败：{e}")
             return
         state["posts"] += 1
+        gap_min = max(1, int(self.cfg.trigger.auto_act_post_gap_min or 18))
+        gap_max = max(gap_min, int(self.cfg.trigger.auto_act_post_gap_max or gap_min))
+        state["next_post_at"] = int(
+            time.time() + random.uniform(gap_min, gap_max) * 3600
+        )
         self._save_state(state)
+        logger.info(f"[AutoAct] 下一条说说至少隔到：{gap_min}~{gap_max} 小时后")
         logger.info(f"[AutoAct] 自主发说说：{text[:40]}")
         if self.cfg.trigger.send_admin:
             await self.sender.send_admin_post(post, message="自主发说说")

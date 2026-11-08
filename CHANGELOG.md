@@ -2,6 +2,11 @@
 
 本仓库从 `astrbot_plugin_qzone` v3.2.0 的源码接续维护（上游仓库已不可访问），版本号自 v0.1.0 重新起算。
 
+## v0.3.1
+
+- 新增 `auto_act_post_gap_min` / `auto_act_post_gap_max`：两次自主发说说之间的随机冷却（默认 18~40 小时）。发完一条后到点前不会把“发说说”放进选项，避免变成每天一条；冷静期跨天延续，不会因为过了零点就重置。
+- 每日发说说上限继续作为硬止损保留。
+
 ## v0.3.0
 
 - 自主行为不再按 cron 排期：每次随机 50~150 分钟后醒来（`auto_act_enabled` / `auto_act_interval_min` / `auto_act_interval_max`），不再有“每小时准点”的节奏。

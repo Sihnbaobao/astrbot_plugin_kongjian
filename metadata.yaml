@@ -2,6 +2,6 @@ name: astrbot_plugin_kongjian
 display_name: QQ空间
 desc: QQ空间对接插件（自维护）：让 bot 自己逛空间、自己发说说、自己点赞评论，附带插件页面与 LLM 工具
 help: 略
-version: v0.3.0
+version: v0.3.1
 author: Sihnbaobao
 repo: https://github.com/Sihnbaobao/astrbot_plugin_kongjian

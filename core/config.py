@@ -153,6 +153,8 @@ class TriggerConfig(ConfigNode):
     auto_act_interval_max: int
     auto_act_quiet_hours: str
     auto_act_daily_post_limit: int
+    auto_act_post_gap_min: int
+    auto_act_post_gap_max: int
     auto_act_daily_interact_limit: int
     send_admin: bool
     like_when_comment: bool

@@ -62,6 +62,7 @@ git clone https://github.com/Sihnbaobao/astrbot_plugin_kongjian
 - `auto_act_interval_min` / `auto_act_interval_max`：两次醒来之间的随机间隔（分钟），默认 50~150。
 - `auto_act_quiet_hours`：静默时段，默认 `01:00-08:00`，这段时间彻底不醒。
 - `auto_act_daily_post_limit` / `auto_act_daily_interact_limit`：每日上限（默认 1 / 2）。**只是硬止损**，不会告诉模型还剩几次，避免它为了凑配额而发。
+- `auto_act_post_gap_min` / `auto_act_post_gap_max`：两条说说之间的随机冷却（小时，默认 18~40）。发完一条后随机抽一个时长，到点前“发说说”不会进入选项——所以不会每天准点一条，忙起来两三天不发也正常。
 - `comment_cron`：兜底任务，到点扫一遍好友动态，给还没评论过的说说补一条；另有 `comment_max_per_run`（单次最多几条）与 `comment_unique_author`（同一位好友只评一条）防止刷屏。
 
 与人格插件联动：如果装了 `astrbot_plugin_persona_presence`，且在其实例上实现了 `qzone_urge()`（返回一小段“此刻想干什么”的文本），会自动拼进决策上下文；没有这个插件也能正常工作。

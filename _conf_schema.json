@@ -197,13 +197,35 @@
             "auto_act_daily_post_limit": {
                 "description": "每天最多自主发几条说说",
                 "type": "int",
-                "hint": "0 表示不主动发说说",
+                "hint": "0 表示不主动发说说。这只是上限，还要受下面两条冷却限制",
                 "slider": {
                     "min": 0,
                     "max": 5,
                     "step": 1
                 },
                 "default": 1
+            },
+            "auto_act_post_gap_min": {
+                "description": "两条说说之间最短隔几小时",
+                "type": "int",
+                "hint": "发完一条后，下一次醒来会在这个区间里随机挑一个时长，到点前不会把“发说说”放进选项，避免每天准点一条",
+                "slider": {
+                    "min": 1,
+                    "max": 72,
+                    "step": 1
+                },
+                "default": 18
+            },
+            "auto_act_post_gap_max": {
+                "description": "两条说说之间最长隔几小时",
+                "type": "int",
+                "hint": "必须不小于最短时长；和最短时长一起随机，让人觉得发帖间隔不固定",
+                "slider": {
+                    "min": 1,
+                    "max": 120,
+                    "step": 1
+                },
+                "default": 40
             },
             "auto_act_daily_interact_limit": {
                 "description": "每天最多自主互动几次",
