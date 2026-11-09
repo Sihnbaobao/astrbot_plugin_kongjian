@@ -842,7 +842,7 @@ class QzonePlugin(Star):
         回想你最近在 QQ 空间里做过什么：看过、赞过、评论过谁的哪条说说。
         当有人问「你是不是看过我的说说」「你昨天是不是给我点赞了」这类事情时用。
         Args:
-            days(integer): 往回查几天，默认 7，最多 30
+            days(number): 往回查几天，默认 7，最多 30
             user_id(string): 只看某个 QQ 号，不填就查全部
         """
         labels = {
