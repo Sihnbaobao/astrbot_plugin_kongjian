@@ -1,6 +1,9 @@
 # pots.py
 
+from __future__ import annotations
+
 import json
+import time
 from typing import Literal, get_args
 
 import aiosqlite
@@ -79,6 +82,21 @@ class PostDB:
                 )
             """)
             await self._ensure_avatar_url_column(db)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS qzone_actions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tid TEXT NOT NULL,
+                    uin INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    snippet TEXT NOT NULL DEFAULT '',
+                    action TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                )
+            """)
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_qzone_actions_created
+                ON qzone_actions(created_at)
+            """)
             await db.commit()
 
     @staticmethod
@@ -225,6 +243,60 @@ class PostDB:
         # 3. 新记录
         post.id = await self.add(post)
         return post.id
+
+    async def log_action(self, post: Post, action: str) -> None:
+        """记一条空间动作（view / like / comment / reply），供日后回忆。"""
+        snippet = " ".join((post.text or post.rt_con or "").split())[:80]
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO qzone_actions (tid, uin, name, snippet, action, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(post.tid or ""),
+                    int(post.uin or 0),
+                    post.name or "",
+                    snippet,
+                    action,
+                    int(time.time()),
+                ),
+            )
+            await db.commit()
+
+    async def recent_actions(
+        self,
+        *,
+        days: int = 7,
+        uin: int | None = None,
+        limit: int = 20,
+    ) -> list[dict]:
+        """取最近若干天的空间动作，最新在前。"""
+        since = int(time.time()) - max(1, days) * 86400
+        sql = (
+            "SELECT action, uin, name, snippet, created_at FROM qzone_actions "
+            "WHERE created_at >= ?"
+        )
+        params: list = [since]
+        if uin:
+            sql += " AND uin = ?"
+            params.append(int(uin))
+        sql += " ORDER BY created_at DESC LIMIT ?"
+        params.append(max(1, limit))
+
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(sql, params) as cursor:
+                rows = await cursor.fetchall()
+        return [
+            {
+                "action": row[0],
+                "uin": row[1],
+                "name": row[2],
+                "snippet": row[3],
+                "created_at": row[4],
+            }
+            for row in rows
+        ]
 
     async def delete(self, post_id: int) -> int:
         """删除稿件"""

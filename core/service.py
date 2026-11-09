@@ -229,6 +229,7 @@ class PostService:
         resp = await self.qzone.like(post)
         if not resp.ok:
             raise RuntimeError(resp.message or "点赞失败")
+        await self.db.log_action(post, "like")
         logger.info(f"已点赞 → {post.name}")
 
     async def comment_posts(
@@ -259,6 +260,7 @@ class PostService:
             )
         )
         await self.db.save(post)
+        await self.db.log_action(post, "comment")
         logger.info(f"评论 → {post.name}")
 
     @staticmethod
@@ -394,6 +396,7 @@ class PostService:
             )
         )
         await self.db.save(post)
+        await self.db.log_action(post, "reply")
 
     async def publish_post(
         self,

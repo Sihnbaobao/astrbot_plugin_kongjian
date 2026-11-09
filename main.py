@@ -1,5 +1,6 @@
 import base64
 import json
+from datetime import datetime
 
 from astrbot.api import logger
 from astrbot.api.event import filter
@@ -293,6 +294,7 @@ class QzonePlugin(Star):
             parsed = QzoneParser.parse_feeds([resp.data])
             matched = parsed[0] if parsed else post
             self._remember_page_post(matched)
+            await self.db.log_action(matched, "view")
             return {
                 "ok": True,
                 "data": {
@@ -338,6 +340,7 @@ class QzonePlugin(Star):
             resp = await self.qzone.like(post)
             if not resp.ok:
                 raise RuntimeError(resp.message or "点赞失败")
+            await self.db.log_action(post, "like")
             return {"ok": True, "data": {"liked": True, "verified": True}}
 
         return await self._page_json(handler)
@@ -353,6 +356,7 @@ class QzonePlugin(Star):
             resp = await self.qzone.comment(post, content)
             if not resp.ok:
                 raise RuntimeError(resp.message or "评论失败")
+            await self.db.log_action(post, "comment")
             comment = {
                 "id": f"local-{len(post.comments) + 1}",
                 "content": content,
@@ -746,6 +750,7 @@ class QzonePlugin(Star):
             post = await self._target_post(event, user_id, pos, with_detail=True)
             if not post:
                 return "查询结果为空"
+            await self.db.log_action(post, "view")
             await self.sender.send_post(event, post, message="看说说")
             return f"{post.name}：{post.text}\n" + "\n".join(post.images)
         except Exception as e:
@@ -824,4 +829,44 @@ class QzonePlugin(Star):
             await self.sender.send_post(event, post, message="已发布")
             return "已发布说说到QQ空间: \n" + post.text + "\n" + "\n".join(post.images)
         except Exception as e:
+            return str(e)
+
+    @filter.llm_tool()
+    async def llm_recall_qzone(
+        self,
+        event: AiocqhttpMessageEvent,
+        days: int = 7,
+        user_id: str | None = None,
+    ):
+        """
+        回想你最近在 QQ 空间里做过什么：看过、赞过、评论过谁的哪条说说。
+        当有人问「你是不是看过我的说说」「你昨天是不是给我点赞了」这类事情时用。
+        Args:
+            days(integer): 往回查几天，默认 7，最多 30
+            user_id(string): 只看某个 QQ 号，不填就查全部
+        """
+        labels = {
+            "view": "看过",
+            "like": "点了赞",
+            "comment": "评论了",
+            "reply": "回复了",
+        }
+        try:
+            days = max(1, min(int(days or 7), 30))
+            uin = int(user_id) if user_id and str(user_id).isdigit() else None
+            rows = await self.db.recent_actions(days=days, uin=uin, limit=20)
+            if not rows:
+                return f"最近 {days} 天你在空间里没有任何动作记录"
+            lines = [f"最近 {days} 天你在空间里的动作（最新在前）："]
+            for row in rows:
+                when = datetime.fromtimestamp(
+                    row["created_at"], self.cfg.timezone
+                ).strftime("%m-%d %H:%M")
+                label = labels.get(row["action"], row["action"])
+                lines.append(
+                    f"- {when} {label} {row['name']}({row['uin']})「{row['snippet']}」"
+                )
+            return "\n".join(lines)
+        except Exception as e:
+            logger.error(e)
             return str(e)
