@@ -159,7 +159,17 @@ class AutoAct:
             logger.debug(f"[AutoAct] 拉取好友动态失败：{e}")
             return []
         done = set(state["done"])
-        return [post for post in posts if post.tid and post.tid not in done][:5]
+        result: list[Post] = []
+        for post in posts:
+            if not post.tid or post.tid in done:
+                continue
+            # 兜底任务、手动机器人、页面评论过的说说都不要再评一次
+            if await self.service.has_own_comment(post):
+                continue
+            result.append(post)
+            if len(result) >= 5:
+                break
+        return result
 
     # ==================== 执行 ====================
 

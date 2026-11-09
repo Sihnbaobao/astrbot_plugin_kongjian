@@ -91,9 +91,22 @@ class PostService:
             posts = await self._filter_not_commented(posts)
 
         for post in posts:
-            await self.db.save(post)
+            await self._save_with_comments(post)
 
         return posts
+
+    async def _save_with_comments(self, post: Post) -> None:
+        """动态流里的评论往往不全，落库时把已有评论并回去，别把记录冲掉。"""
+        if post.tid:
+            old = await self.db.get(post.tid, key="tid")
+            if old and old.comments:
+                known = {self._comment_key(comment) for comment in post.comments}
+                merged = list(post.comments)
+                for comment in old.comments:
+                    if self._comment_key(comment) not in known:
+                        merged.append(comment)
+                post.comments = merged
+        await self.db.save(post)
 
     @staticmethod
     def _contains_any(text: str, keywords: tuple[str, ...]) -> bool:
@@ -165,6 +178,15 @@ class PostService:
             return False
         saved_post = await self.db.get(post.tid, key="tid")
         return bool(saved_post and self._has_comment_from_uin(saved_post, uin))
+
+    async def has_own_comment(self, post: Post) -> bool:
+        """自己有没有在这条说说下留过言（只看动态流与本地库，不额外请求）。"""
+        if not post.tid:
+            return False
+        uin = await self.session.get_uin()
+        if self._has_comment_from_uin(post, uin):
+            return True
+        return await self._has_saved_self_comment(post, uin)
 
     async def _fill_post_detail(self, posts: list[Post]) -> list[Post]:
         result: list[Post] = []
@@ -238,6 +260,8 @@ class PostService:
         """评论帖子"""
         if not post.tid:
             raise ValueError("帖子 tid 为空")
+        if await self.has_own_comment(post):
+            raise ValueError("这条说说已经评论过了")
 
         content = await self.llm.generate_comment(post, event=event)
         if not content:
