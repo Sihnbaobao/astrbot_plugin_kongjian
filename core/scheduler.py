@@ -61,7 +61,12 @@ class AutoRandomCronTask:
             return
 
         now = datetime.now(self.timezone)
-        base_time = self.trigger.get_next_fire_time(self._last_base_time, now)
+        # 负偏移会让任务在基准时间之前就触发。这时若直接拿 now 去算下一次，
+        # APScheduler 会把刚刚用过的那个基准时间原样返回，同一天就会跑两轮。
+        anchor = now
+        if self._last_base_time and self._last_base_time > anchor:
+            anchor = self._last_base_time
+        base_time = self.trigger.get_next_fire_time(self._last_base_time, anchor)
         if not base_time:
             logger.error(f"[{self.job_name}] 无法计算下一次基准时间")
             return

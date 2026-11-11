@@ -3,7 +3,7 @@ display_name: QQ空间
 short_desc: 让 bot 自己逛空间、发说说、点赞评论
 desc: QQ空间对接插件（自维护）：让 bot 自己逛空间、自己发说说、自己点赞评论，附带插件页面与 LLM 工具。
 help: 登录 QQ 空间后，bot 可以自己浏览好友动态、发说说、点赞和评论；支持插件页管理和 LLM 工具调用。
-version: 0.3.6
+version: 0.3.7
 author: Sihnbaobao
 repo: https://github.com/Sihnbaobao/astrbot_plugin_kongjian
 astrbot_version: ">=4.11.0"
