@@ -28,6 +28,22 @@ SCENE_LABELS = {
 TIME_PLACEHOLDER = "{current_time}"
 SCENE_PLACEHOLDER = "{scene}"
 
+# 模型偶尔会自己加“（发图：冷漠脸）”这类动作说明，QQ空间评论只收纯文字
+STAGE_DIRECTION_RE = re.compile(
+    r"[（(]\s*(?:发图|发个图|发表情|表情|图片|配图|贴图|动作)[^）)]{0,20}[）)]"
+)
+EMOJI_RE = re.compile(
+    "[\U0001f000-\U0001faff\u2600-\u27bf\u2b00-\u2bff\ufe0f\u200d\u20e3]"
+)
+
+
+def clean_generated_text(raw: str) -> str:
+    """去掉模型自带的动作说明和 emoji，空间评论/回复只发纯文字。"""
+    text = STAGE_DIRECTION_RE.sub("", str(raw or ""))
+    text = EMOJI_RE.sub("", text)
+    text = re.sub(r"[\s\u3000]+", "", text)
+    return text.rstrip("。")
+
 
 class LLMAction:
     def __init__(self, config: PluginConfig):
@@ -435,7 +451,9 @@ class LLMAction:
                 event=event,
                 task_prompt=self._join_prompt_parts(
                     task_prompt,
-                    "# 输出要求：\n- 只输出最终评论内容，不要解释，不要分点，不要添加额外前缀。",
+                    "# 输出要求：\n"
+                    "- 只输出最终评论内容，不要解释，不要分点，不要添加额外前缀。\n"
+                    "- 只发纯文字：不要表情符号，也不要写「（发图：…）」「[表情]」这类图片或动作说明。",
                 ),
                 prompt_has_time=has_time,
             )
@@ -462,9 +480,7 @@ class LLMAction:
                     )
                 else:
                     raise
-            comment = re.sub(r"[\s\u3000]+", "", llm_response.completion_text).rstrip(
-                "。"
-            )
+            comment = clean_generated_text(llm_response.completion_text)
             logger.info(f"LLM 生成的评论：{comment}")
             return comment
 
@@ -497,7 +513,9 @@ class LLMAction:
                 event=event,
                 task_prompt=self._join_prompt_parts(
                     task_prompt,
-                    "# 输出要求：\n- 只输出最终回复内容，不要解释，不要分点，不要添加额外前缀。",
+                    "# 输出要求：\n"
+                    "- 只输出最终回复内容，不要解释，不要分点，不要添加额外前缀。\n"
+                    "- 只发纯文字：不要表情符号，也不要写「（发图：…）」「[表情]」这类图片或动作说明。",
                 ),
                 prompt_has_time=has_time,
             )
@@ -507,9 +525,7 @@ class LLMAction:
                 prompt=prompt,
                 contexts=contexts,
             )
-            reply = re.sub(r"[\s\u3000]+", "", llm_response.completion_text).rstrip(
-                "。"
-            )
+            reply = clean_generated_text(llm_response.completion_text)
             logger.info(f"LLM 生成的回复：{reply}")
             return reply
 
