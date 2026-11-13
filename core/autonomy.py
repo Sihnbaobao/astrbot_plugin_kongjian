@@ -9,6 +9,7 @@ from datetime import time as dtime
 from astrbot.api import logger
 
 from .config import PluginConfig
+from .llm_action import clean_stage_direction
 from .model import Post
 from .sender import Sender
 from .service import PostService
@@ -207,7 +208,7 @@ class AutoAct:
             if not allow_post:
                 logger.info(f"[AutoAct] 今天已经发过说说，忽略：{reason}")
                 return
-            await self._post(state)
+            await self._post(state, str(decision.get("text") or ""))
             return
 
         if not allow_interact:
@@ -231,12 +232,15 @@ class AutoAct:
         else:
             logger.warning(f"[AutoAct] 未知动作：{action}")
 
-    async def _post(self, state: dict) -> None:
-        try:
-            text = await self.service.llm.generate_post()
-        except Exception as e:
-            logger.warning(f"[AutoAct] 生成说说失败：{e}")
-            return
+    async def _post(self, state: dict, text: str = "") -> None:
+        # 决策时模型已经想好一句“想发的话”，优先用它；没有才回头去翻群聊
+        text = clean_stage_direction(text) if text else ""
+        if not text:
+            try:
+                text = await self.service.llm.generate_post()
+            except Exception as e:
+                logger.warning(f"[AutoAct] 生成说说失败：{e}")
+                return
         if not text:
             return
         try:

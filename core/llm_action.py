@@ -37,6 +37,11 @@ EMOJI_RE = re.compile(
 )
 
 
+def clean_stage_direction(raw: str) -> str:
+    """只去掉“（发图：…）”这类动作说明，保留正文和标点。"""
+    return STAGE_DIRECTION_RE.sub("", str(raw or "")).strip()
+
+
 def clean_generated_text(raw: str) -> str:
     """去掉模型自带的动作说明和 emoji，空间评论/回复只发纯文字。"""
     text = STAGE_DIRECTION_RE.sub("", str(raw or ""))
@@ -421,7 +426,9 @@ class LLMAction:
                 system_prompt=system_prompt,
                 contexts=contexts,
             )
-            diary = self.extract_content(llm_response.completion_text)
+            diary = clean_stage_direction(
+                self.extract_content(llm_response.completion_text)
+            )
             if not diary:
                 raise ValueError("LLM 生成的日记为空")
             logger.info(f"LLM 生成的日记：{diary}")
