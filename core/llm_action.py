@@ -110,7 +110,7 @@ class LLMAction:
         return contexts
 
     async def _get_msg_contexts(
-        self, group_id: str, days: int | None = None
+        self, group_id: str, days: int | None = None, limit: int | None = None
     ) -> list[dict]:
         """按日期回溯获取群聊历史消息，只保留最近 days 天内的内容"""
         message_seq = 0
@@ -122,14 +122,15 @@ class LLMAction:
         contexts: list[dict] = []
         if not self.cfg.client:
             raise RuntimeError("客户端未初始化")
+        max_msgs = max(1, int(limit or self.cfg.source.post_max_msg))
         max_pages = 20
         pages = 0
-        while len(contexts) < self.cfg.source.post_max_msg and pages < max_pages:
+        while len(contexts) < max_msgs and pages < max_pages:
             pages += 1
             payloads = {
                 "group_id": group_id,
                 "message_seq": message_seq,
-                "count": 200,
+                "count": min(200, max_msgs - len(contexts)),
                 "reverseOrder": True,
             }
             result: dict = await self.cfg.client.api.call_action(
@@ -156,10 +157,10 @@ class LLMAction:
         # 分页是从新到旧拉取，合起来整体是倒序；反转后按时间正序，
         # 再保留末尾（即最近）的 post_max_msg 条，确保截断丢掉的是最旧的消息
         contexts.reverse()
-        return contexts[-self.cfg.source.post_max_msg :]
+        return contexts[-max_msgs:]
 
     async def _resolve_msg_contexts(
-        self, group_id: str = ""
+        self, group_id: str = "", limit: int | None = None
     ) -> tuple[str, list[dict], list[str]]:
         """
         确定用于写说说的聊天记录。
@@ -175,7 +176,11 @@ class LLMAction:
         tried: list[str] = []
         if group_id:
             tried.append(str(group_id))
-            return str(group_id), await self._get_msg_contexts(str(group_id)), tried
+            return (
+                str(group_id),
+                await self._get_msg_contexts(str(group_id), limit=limit),
+                tried,
+            )
 
         group_list = await self.cfg.client.get_group_list()
         group_ids = [
@@ -192,7 +197,7 @@ class LLMAction:
         for candidate in candidates:
             tried.append(candidate)
             try:
-                contexts = await self._get_msg_contexts(candidate)
+                contexts = await self._get_msg_contexts(candidate, limit=limit)
             except Exception as e:
                 logger.warning(
                     f"获取群聊 {candidate} 的聊天记录失败，切换下一个会话: {e}"
@@ -578,6 +583,51 @@ class LLMAction:
             return f"{hours} 小时前"
         return f"{hours // 24} 天前"
 
+    async def recent_chat_digest(self, limit: int = 20) -> str:
+        """取一段最近的群聊记录，给“自主行动”当上下文用。"""
+        try:
+            _, contexts, _ = await self._resolve_msg_contexts("", limit=40)
+        except Exception as e:
+            logger.debug(f"读取群聊记录失败：{e}")
+            return ""
+        if not contexts:
+            return ""
+        lines = []
+        for item in contexts[-limit:]:
+            content = str(item.get("content") or "").strip()
+            if content:
+                lines.append(content)
+        return "\n".join(lines)[-2000:]
+
+    async def memory_digest(self, query: str, k: int = 5) -> str:
+        """向 LivingMemory 要几条相关长期记忆；插件不在就返回空串。"""
+        query = str(query or "").strip()
+        if not query:
+            return ""
+        try:
+            star = self.context.get_registered_star("astrbot_plugin_livingmemory")
+            plugin = getattr(star, "star_cls", None) if star else None
+            if plugin is None:
+                return ""
+            initializer = getattr(plugin, "initializer", None)
+            engine = (
+                getattr(initializer, "memory_engine", None) if initializer else None
+            )
+            if engine is None:
+                engine = getattr(plugin, "memory_engine", None)
+            if engine is None:
+                return ""
+            memories = await engine.search_memories(query=query, k=k)
+            lines = []
+            for memory in memories or []:
+                content = str(getattr(memory, "content", "") or "").strip()
+                if content:
+                    lines.append(f"- {content[:120]}")
+            return "\n".join(lines)
+        except Exception as e:
+            logger.debug(f"检索长期记忆失败：{e}")
+            return ""
+
     async def decide_action(
         self,
         candidates: list[Post],
@@ -585,6 +635,8 @@ class LLMAction:
         allow_post: bool,
         allow_interact: bool,
         urge: str = "",
+        chat_digest: str = "",
+        memory_digest: str = "",
     ) -> dict[str, Any] | None:
         """让模型决定这一刻要不要主动做点什么。
 
@@ -614,6 +666,10 @@ class LLMAction:
         lines.append("- 什么都不做（大多数时候就是这样）")
         if urge:
             lines.extend(["", "# 此刻的念头", urge])
+        if chat_digest:
+            lines.extend(["", "# 群里最近在聊", chat_digest])
+        if memory_digest:
+            lines.extend(["", "# 你记得的事", memory_digest])
         lines.extend(["", "# 好友最近的动态"])
         if candidates:
             for index, post in enumerate(candidates):

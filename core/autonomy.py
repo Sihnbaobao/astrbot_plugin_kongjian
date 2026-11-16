@@ -189,11 +189,28 @@ class AutoAct:
             return
 
         candidates = await self._candidates(state)
+        urge = self._persona_urge()
+        # 给她补上“刚聊过什么 / 记得什么”，否则写说说时只剩人格空转
+        chat_digest = await self.service.llm.recent_chat_digest(limit=20)
+        memory_query = (
+            chat_digest[-200:]
+            or urge
+            or " ".join(
+                (post.text or post.rt_con or "")[:80] for post in candidates[:3]
+            )
+        )
+        memory_digest = (
+            await self.service.llm.memory_digest(memory_query, k=5)
+            if memory_query
+            else ""
+        )
         decision = await self.service.llm.decide_action(
             candidates,
             allow_post=allow_post,
             allow_interact=allow_interact,
-            urge=self._persona_urge(),
+            urge=urge,
+            chat_digest=chat_digest,
+            memory_digest=memory_digest,
         )
         if not decision:
             return
