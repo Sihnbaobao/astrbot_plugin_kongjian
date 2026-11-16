@@ -204,6 +204,11 @@ class AutoAct:
             if memory_query
             else ""
         )
+        logger.info(
+            f"[AutoAct] 决策上下文：群聊 {len(chat_digest)} 字，"
+            f"记忆 {len(memory_digest.splitlines()) if memory_digest else 0} 条，"
+            f"候选动态 {len(candidates)} 条"
+        )
         decision = await self.service.llm.decide_action(
             candidates,
             allow_post=allow_post,
