@@ -25,6 +25,21 @@ SCENE_LABELS = {
     SCENE_ACT: "自主行动",
 }
 
+NOISE_PREFIXES = (
+    "定时读说说",
+    "触发读说说",
+    "自主发说说",
+    "自主评论",
+    "已评论",
+    "已点赞",
+    "已发布",
+    "看说说",
+    "已删除说说",
+    "收到新投稿",
+    "已投，等待审核",
+    "您的投稿",
+)
+
 TIME_PLACEHOLDER = "{current_time}"
 SCENE_PLACEHOLDER = "{scene}"
 
@@ -54,6 +69,7 @@ class LLMAction:
     def __init__(self, config: PluginConfig):
         self.cfg = config
         self.context = config.context
+        self._self_uin_cache = ""
 
     @staticmethod
     def _join_prompt_parts(*parts: str) -> str:
@@ -105,9 +121,24 @@ class LLMAction:
             # 仅当真正说了话才保留
             if not text:
                 continue
+            # 插件自己发的通知卡片（“定时读说说”“已评论”等）不是聊天内容
+            if text.startswith(NOISE_PREFIXES):
+                continue
             nickname = (msg.get("sender") or {}).get("nickname") or "未知用户"
             contexts.append({"role": "user", "content": f"{nickname}: {text}"})
         return contexts
+
+    async def _self_uin(self) -> str:
+        """取机器人自己的 QQ 号，用来把“自己发的消息”排除出聊天上下文。"""
+        if self._self_uin_cache:
+            return self._self_uin_cache
+        try:
+            if self.cfg.client:
+                info = await self.cfg.client.api.call_action("get_login_info")
+                self._self_uin_cache = str((info or {}).get("user_id") or "")
+        except Exception as e:
+            logger.debug(f"获取自身 QQ 号失败：{e}")
+        return self._self_uin_cache
 
     async def _get_msg_contexts(
         self, group_id: str, days: int | None = None, limit: int | None = None
@@ -141,8 +172,15 @@ class LLMAction:
                 break
 
             # 本批消息已回溯到指定日期之前，取完这一批里的有效消息即可结束
+            self_uin = await self._self_uin()
             in_range = [
-                msg for msg in round_messages if self._is_msg_in_days(msg, since)
+                msg
+                for msg in round_messages
+                if self._is_msg_in_days(msg, since)
+                and (
+                    not self_uin
+                    or str((msg.get("sender") or {}).get("user_id") or "") != self_uin
+                )
             ]
             contexts.extend(self._build_context(in_range))
 
@@ -183,10 +221,12 @@ class LLMAction:
             )
 
         group_list = await self.cfg.client.get_group_list()
+        manage_group = str(self.cfg.manage_group or "").strip()
         group_ids = [
             str(group["group_id"])
             for group in group_list
             if str(group["group_id"]) not in self.cfg.source.ignore_groups
+            and str(group["group_id"]) != manage_group
         ]
         if not group_ids:
             return "", [], []
@@ -623,7 +663,9 @@ class LLMAction:
                 content = str(getattr(memory, "content", "") or "").strip()
                 if content:
                     lines.append(f"- {content[:120]}")
-            return "\n".join(lines)
+                if len(lines) >= 8:
+                    break
+            return "\n".join(lines)[:600]
         except Exception as e:
             logger.debug(f"检索长期记忆失败：{e}")
             return ""
@@ -688,6 +730,9 @@ class LLMAction:
             task_prompt=self._join_prompt_parts(
                 task_prompt,
                 "# 输出格式\n只输出一个 JSON 对象，不要代码块，不要解释。",
+                "# 注意\n"
+                "- 你看到的是真实聊天记录，不要把系统通知、插件日志或命令名当成聊天内容。\n"
+                "- 不要在说说或评论里提到插件、机器人、提示词这些东西。",
             ),
             prompt_has_time=has_time,
         )
