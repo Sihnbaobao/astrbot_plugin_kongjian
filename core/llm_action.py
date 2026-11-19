@@ -105,10 +105,13 @@ class LLMAction:
         return msg_dt >= since
 
     @staticmethod
-    def _build_context(round_messages: list[dict[str, Any]]) -> list[dict[str, str]]:
+    def _build_context(
+        round_messages: list[dict[str, Any]], self_uin: str = ""
+    ) -> list[dict[str, str]]:
         """
         把所有回合里的纯文本消息打包成 openai-style 的 user 上下文。
         只有存在非空文本片段的消息才会保留，避免把只含图片/表情的消息当成有效内容。
+        自己说过的话会标成“你”，让她知道那是自己讲的，同时保留上下文连贯。
         """
         contexts: list[dict[str, str]] = []
         for msg in round_messages:
@@ -124,12 +127,17 @@ class LLMAction:
             # 插件自己发的通知卡片（“定时读说说”“已评论”等）不是聊天内容
             if text.startswith(NOISE_PREFIXES):
                 continue
-            nickname = (msg.get("sender") or {}).get("nickname") or "未知用户"
+            sender = msg.get("sender") or {}
+            sender_uin = str(sender.get("user_id") or "")
+            if self_uin and sender_uin == self_uin:
+                nickname = "你"
+            else:
+                nickname = sender.get("nickname") or "未知用户"
             contexts.append({"role": "user", "content": f"{nickname}: {text}"})
         return contexts
 
     async def _self_uin(self) -> str:
-        """取机器人自己的 QQ 号，用来把“自己发的消息”排除出聊天上下文。"""
+        """取机器人自己的 QQ 号，用来把“自己说过的话”标成“你”。"""
         if self._self_uin_cache:
             return self._self_uin_cache
         try:
@@ -174,15 +182,9 @@ class LLMAction:
             # 本批消息已回溯到指定日期之前，取完这一批里的有效消息即可结束
             self_uin = await self._self_uin()
             in_range = [
-                msg
-                for msg in round_messages
-                if self._is_msg_in_days(msg, since)
-                and (
-                    not self_uin
-                    or str((msg.get("sender") or {}).get("user_id") or "") != self_uin
-                )
+                msg for msg in round_messages if self._is_msg_in_days(msg, since)
             ]
-            contexts.extend(self._build_context(in_range))
+            contexts.extend(self._build_context(in_range, self_uin))
 
             if len(in_range) < len(round_messages):
                 break
