@@ -9,6 +9,7 @@ from apscheduler.triggers.date import DateTrigger
 
 from astrbot.api import logger
 
+from . import body_sleep
 from .config import PluginConfig
 from .model import Post
 from .sender import Sender
@@ -149,6 +150,15 @@ class AutoComment(AutoRandomCronTask):
         self.sender = sender
 
     async def do_task(self):
+        # 睡着的时候不补评论：等她醒来再说，不为了赶上 cron 把人叫醒。
+        sleep_state = body_sleep.read(self.cfg.context)
+        if sleep_state["asleep"]:
+            logger.info(
+                f"[{self.job_name}] 睡着了，跳过这一轮："
+                f"{sleep_state['line'] or sleep_state['kind']}"
+            )
+            return
+
         posts = await self.service.query_feeds(
             pos=0,
             num=20,

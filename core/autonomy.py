@@ -8,6 +8,7 @@ from datetime import time as dtime
 
 from astrbot.api import logger
 
+from . import body_sleep
 from .config import PluginConfig
 from .llm_action import clean_stage_direction
 from .model import Post
@@ -177,6 +178,15 @@ class AutoAct:
     async def do_task(self):
         if self._in_quiet_hours():
             logger.debug("[AutoAct] 静默时段，跳过")
+            return
+
+        # 她真的睡着了就什么都不做。身体插件的睡眠优先于固定时段：
+        # 没睡的时候半夜也可能想发，睡着的时候白天也不会发。
+        sleep_state = body_sleep.read(self.cfg.context)
+        if sleep_state["asleep"]:
+            logger.info(
+                f"[AutoAct] 睡着了，跳过这一轮：{sleep_state['line'] or sleep_state['kind']}"
+            )
             return
 
         state = self._load_state()
