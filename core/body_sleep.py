@@ -41,12 +41,18 @@ def _awake() -> dict[str, Any]:
     """Return the neutral awake state used whenever nothing can be read."""
     return {
         "asleep": False,
+        "in_bed": False,
         "enabled": False,
         "persona": "",
         "kind": "",
         "since": 0.0,
         "wake_at": 0.0,
+        "bed_at": 0.0,
         "bedtime": 0.0,
+        "nap_at": 0.0,
+        "awake_since": 0.0,
+        "busy_until": 0.0,
+        "busy_kind": "",
         "line": "",
     }
 
@@ -68,14 +74,26 @@ def normalise(entry: Any, now: float) -> dict[str, Any]:
     except (TypeError, ValueError):
         wake_at = 0.0
     asleep = bool(entry.get("asleep")) and (wake_at <= 0.0 or now < wake_at)
+    def stamp(key: str) -> float:
+        try:
+            return max(0.0, float(entry.get(key) or 0.0))
+        except (TypeError, ValueError):
+            return 0.0
+
     return {
         "asleep": asleep,
+        "in_bed": bool(entry.get("in_bed")) and not asleep,
         "enabled": True,
         "persona": str(entry.get("persona_id") or entry.get("persona") or ""),
         "kind": str(entry.get("kind") or ""),
         "since": float(entry.get("since") or 0.0),
         "wake_at": wake_at if asleep else 0.0,
-        "bedtime": float(entry.get("bedtime") or 0.0),
+        "bed_at": stamp("bed_at"),
+        "bedtime": stamp("bedtime"),
+        "nap_at": stamp("nap_at"),
+        "awake_since": stamp("awake_since"),
+        "busy_until": stamp("busy_until"),
+        "busy_kind": str(entry.get("busy_kind") or ""),
         "line": str(entry.get("line") or ""),
     }
 

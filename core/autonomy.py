@@ -8,7 +8,7 @@ from datetime import time as dtime
 
 from astrbot.api import logger
 
-from . import body_sleep
+from . import activity, body_sleep
 from .config import PluginConfig
 from .llm_action import clean_stage_direction
 from .model import Post
@@ -189,6 +189,24 @@ class AutoAct:
             )
             return
 
+        plan = body_sleep.read(self.cfg.context)
+        now = self.cfg.now()
+        now_ts = now.timestamp()
+        # Only act inside her awake window: no posting while she naps, right
+        # before bed, or when a companion plugin is already doing something.
+        bedtime = float(plan.get("bedtime") or 0.0)
+        if bedtime and now_ts > bedtime - 3600:
+            logger.debug("[AutoAct] 快到她睡觉的时间了，跳过")
+            return
+        nap_at = float(plan.get("nap_at") or 0.0)
+        if nap_at and nap_at - 600 <= now_ts <= nap_at + 3600:
+            logger.debug("[AutoAct] 午睡时间，跳过")
+            return
+        busy_until, busy_kind = activity.busy("astrbot_plugin_kongjian", now_ts)
+        if busy_until > now_ts:
+            logger.info(f"[AutoAct] 她正在忙（{busy_kind}），这一轮让给她")
+            return
+
         state = self._load_state()
         post_limit = int(self.cfg.trigger.auto_act_daily_post_limit or 0)
         interact_limit = int(self.cfg.trigger.auto_act_daily_interact_limit or 0)
@@ -237,6 +255,7 @@ class AutoAct:
             return
 
         if action == "post":
+            activity.write("astrbot_plugin_kongjian", "发说说", "", now_ts + 600)
             if not allow_post:
                 logger.info(f"[AutoAct] 今天已经发过说说，忽略：{reason}")
                 return
@@ -257,6 +276,7 @@ class AutoAct:
             return
 
         post = candidates[index]
+        activity.write("astrbot_plugin_kongjian", "逛空间", "", now_ts + 480)
         if action == "like":
             await self._like(post, state)
         elif action == "comment":
