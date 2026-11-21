@@ -32,7 +32,7 @@ def _data_root() -> Path | None:
         return None
 
 
-def _roll(*parts: str) -> float:
+def roll(*parts: str) -> float:
     """Return a stable pseudo-random float in [0, 1) for the given parts."""
     digest = hashlib.sha1("|".join(parts).encode("utf-8")).digest()
     return int.from_bytes(digest[:4], "big") / 2**32
@@ -157,7 +157,7 @@ def slots(
     picked: list[float] = []
     for index in range(count):
         base = lo + span * index
-        offset = _roll(persona, day, kind, str(index)) * span * 0.85
+        offset = roll(persona, day, kind, str(index)) * span * 0.85
         picked.append(base + offset)
     nap = float(plan.get("nap_at") or 0.0)
     if nap:
