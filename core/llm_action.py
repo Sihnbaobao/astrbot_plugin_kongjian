@@ -681,6 +681,7 @@ class LLMAction:
         urge: str = "",
         chat_digest: str = "",
         memory_digest: str = "",
+        own_digest: str = "",
     ) -> dict[str, Any] | None:
         """让模型决定这一刻要不要主动做点什么。
 
@@ -714,6 +715,8 @@ class LLMAction:
             lines.extend(["", "# 群里最近在聊", chat_digest])
         if memory_digest:
             lines.extend(["", "# 你记得的事", memory_digest])
+        if own_digest:
+            lines.extend(["", "# 你最近发过的说说（别车轱辘话）", own_digest])
         lines.extend(["", "# 好友最近的动态"])
         if candidates:
             for index, post in enumerate(candidates):
@@ -734,7 +737,8 @@ class LLMAction:
                 "# 输出格式\n只输出一个 JSON 对象，不要代码块，不要解释。",
                 "# 注意\n"
                 "- 你看到的是真实聊天记录，不要把系统通知、插件日志或命令名当成聊天内容。\n"
-                "- 不要在说说或评论里提到插件、机器人、提示词这些东西。",
+                "- 不要在说说或评论里提到插件、机器人、提示词这些东西。\n"
+                "- 不要重复自己最近发过的说说：意思差不多就这次别发。",
             ),
             prompt_has_time=has_time,
         )

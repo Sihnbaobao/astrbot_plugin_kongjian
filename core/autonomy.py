@@ -3,8 +3,9 @@
 import asyncio
 import json
 import random
+import re
 import time
-from datetime import time as dtime
+from datetime import datetime, time as dtime
 
 from astrbot.api import logger
 
@@ -154,6 +155,55 @@ class AutoAct:
         """两条说说之间要隔一段随机时长，避免每天准点一条。"""
         return time.time() >= int(state.get("next_post_at") or 0)
 
+    async def _own_recent(self, limit: int = 5) -> list[Post]:
+        """读自己最近发过的说说，避免重复自己。"""
+        try:
+            uin = await self.service.session.get_uin()
+            posts = await self.service.query_feeds(target_id=str(uin), num=limit)
+        except Exception as e:
+            logger.debug(f"[AutoAct] 读取自己的说说失败：{e}")
+            return []
+        return [post for post in posts if (post.text or post.rt_con)][:limit]
+
+    def _own_digest(self, posts: list[Post]) -> str:
+        lines = []
+        for post in posts:
+            text = " ".join((post.text or post.rt_con or "").split())
+            if not text:
+                continue
+            when = ""
+            if post.create_time:
+                try:
+                    when = datetime.fromtimestamp(
+                        post.create_time, self.cfg.timezone
+                    ).strftime("%m-%d ")
+                except (ValueError, OSError):
+                    when = ""
+            lines.append(f"- {when}{text[:60]}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _too_similar(text: str, recent: list[Post], threshold: float = 0.5) -> bool:
+        """和最近发过的说说太像就不发了，省得重复。"""
+        def normalize(value: str) -> str:
+            return re.sub(r"[\s\W_]+", "", str(value or "").lower())
+
+        target = normalize(text)
+        if len(target) < 6:
+            return False
+        target_grams = {target[i : i + 2] for i in range(len(target) - 1)}
+        for post in recent:
+            other = normalize(post.text or post.rt_con or "")
+            if len(other) < 6:
+                continue
+            other_grams = {other[i : i + 2] for i in range(len(other) - 1)}
+            if not target_grams or not other_grams:
+                continue
+            overlap = len(target_grams & other_grams) / len(target_grams | other_grams)
+            if overlap >= threshold:
+                return True
+        return False
+
     async def _candidates(self, state: dict) -> list[Post]:
         try:
             posts = await self.service.query_feeds(pos=0, num=10, no_self=True)
@@ -217,6 +267,7 @@ class AutoAct:
             return
 
         candidates = await self._candidates(state)
+        own_recent = await self._own_recent()
         urge = self._persona_urge()
         # 给她补上“刚聊过什么 / 记得什么”，否则写说说时只剩人格空转
         chat_digest = await self.service.llm.recent_chat_digest(limit=20)
@@ -235,7 +286,7 @@ class AutoAct:
         logger.info(
             f"[AutoAct] 决策上下文：群聊 {len(chat_digest)} 字，"
             f"记忆 {len(memory_digest.splitlines()) if memory_digest else 0} 条，"
-            f"候选动态 {len(candidates)} 条"
+            f"候选动态 {len(candidates)} 条，自己发过 {len(own_recent)} 条"
         )
         decision = await self.service.llm.decide_action(
             candidates,
@@ -244,6 +295,7 @@ class AutoAct:
             urge=urge,
             chat_digest=chat_digest,
             memory_digest=memory_digest,
+            own_digest=self._own_digest(own_recent),
         )
         if not decision:
             return
@@ -259,7 +311,7 @@ class AutoAct:
             if not allow_post:
                 logger.info(f"[AutoAct] 今天已经发过说说，忽略：{reason}")
                 return
-            await self._post(state, str(decision.get("text") or ""))
+            await self._post(state, str(decision.get("text") or ""), own_recent)
             return
 
         if not allow_interact:
@@ -284,7 +336,9 @@ class AutoAct:
         else:
             logger.warning(f"[AutoAct] 未知动作：{action}")
 
-    async def _post(self, state: dict, text: str = "") -> None:
+    async def _post(
+        self, state: dict, text: str = "", recent: list[Post] | None = None
+    ) -> None:
         # 决策时模型已经想好一句“想发的话”，优先用它；没有才回头去翻群聊
         text = clean_stage_direction(text) if text else ""
         if not text:
@@ -294,6 +348,9 @@ class AutoAct:
                 logger.warning(f"[AutoAct] 生成说说失败：{e}")
                 return
         if not text:
+            return
+        if recent and self._too_similar(text, recent):
+            logger.info(f"[AutoAct] 和最近发过的太像，这次不发了：{text[:40]}")
             return
         try:
             post = await self.service.publish_post(text=text)
